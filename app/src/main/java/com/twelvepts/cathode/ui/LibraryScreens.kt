@@ -64,9 +64,9 @@ fun HomeScreen(
     store: CathodeSettingsStore,
 ) {
     val albumCount = remember(state.tracks) { state.tracks.map(AudioTrack::album).distinct().size }
-    val pinned = remember(state.tracks, settings.pinnedTrackIds) { state.tracks.filter { it.id in settings.pinnedTrackIds } }
+    val pinned = remember(state.tracks, settings.pinnedTrackKeys) { state.tracks.filter { it.stableKey in settings.pinnedTrackKeys } }
     fun togglePin(track: AudioTrack) = store.update {
-        it.copy(pinnedTrackIds = if (track.id in it.pinnedTrackIds) it.pinnedTrackIds - track.id else it.pinnedTrackIds + track.id)
+        it.copy(pinnedTrackKeys = if (track.stableKey in it.pinnedTrackKeys) it.pinnedTrackKeys - track.stableKey else it.pinnedTrackKeys + track.stableKey)
     }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -85,7 +85,7 @@ fun HomeScreen(
             }
         }
         if (state.tracks.isEmpty()) item { EmptyLibrary(state.permissionGranted) }
-        settings.homeSections.forEach { section ->
+        settings.homeSections.filterNot(settings.hiddenHomeSections::contains).forEach { section ->
             when (section) {
                 "Pinned" -> if (pinned.isNotEmpty()) {
                     item { SectionLabel("Pinned") }
@@ -94,7 +94,7 @@ fun HomeScreen(
                 "Recently added" -> if (state.tracks.isNotEmpty()) {
                     item { SectionLabel("Recently added") }
                     items(state.tracks.take(12), key = { "recent-${it.id}" }) {
-                        TrackRow(it,onPlay,onEdit,it.id in settings.pinnedTrackIds,{togglePin(it)})
+                        TrackRow(it,onPlay,onEdit,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)})
                     }
                 }
             }

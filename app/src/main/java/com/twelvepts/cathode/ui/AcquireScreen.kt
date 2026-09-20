@@ -36,7 +36,7 @@ private const val MONOCHROME_URL = "https://monochrome.tf/"
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun AcquireScreen(onDownloadStarted: () -> Unit) {
+fun AcquireScreen() {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loadingProgress by remember { mutableIntStateOf(0) }
 
@@ -75,7 +75,7 @@ fun AcquireScreen(onDownloadStarted: () -> Unit) {
                             loadingProgress = newProgress
                         }
                     }
-                    setDownloadListener(CathodeDownloadListener(context, onDownloadStarted))
+                    setDownloadListener(CathodeDownloadListener(context))
                     loadUrl(MONOCHROME_URL)
                 }
             },
@@ -106,7 +106,6 @@ fun AcquireScreen(onDownloadStarted: () -> Unit) {
 
 private class CathodeDownloadListener(
     private val context: Context,
-    private val onDownloadStarted: () -> Unit,
 ) : DownloadListener {
     override fun onDownloadStart(
         url: String,
@@ -133,9 +132,11 @@ private class CathodeDownloadListener(
         }
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         runCatching { manager.enqueue(request) }
-            .onSuccess {
+            .onSuccess { id ->
+                val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
+                val active = preferences.getStringSet("active_ids", emptySet()).orEmpty() + id.toString()
+                preferences.edit().putStringSet("active_ids", active).apply()
                 Toast.makeText(context, "Download started: $filename", Toast.LENGTH_SHORT).show()
-                onDownloadStarted()
             }
             .onFailure { Toast.makeText(context, "Download failed: ${it.message}", Toast.LENGTH_LONG).show() }
     }

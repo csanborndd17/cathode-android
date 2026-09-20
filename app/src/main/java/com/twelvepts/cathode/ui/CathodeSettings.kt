@@ -29,7 +29,8 @@ data class CathodeSettings(
     val tabOrder: List<String> = defaultTabs,
     val hiddenTabs: Set<String> = emptySet(),
     val homeSections: List<String> = defaultHomeSections,
-    val pinnedTrackIds: Set<Long> = emptySet(),
+    val hiddenHomeSections: Set<String> = emptySet(),
+    val pinnedTrackKeys: Set<String> = emptySet(),
 ) {
     companion object {
         val defaultTabs = listOf("Home", "Search", "Library", "Acquire", "Settings")
@@ -61,8 +62,42 @@ class CathodeSettingsStore(context: Context) {
             .putString("tab_order", next.tabOrder.joinToString(","))
             .putStringSet("hidden_tabs", next.hiddenTabs)
             .putString("home_sections", next.homeSections.joinToString(","))
-            .putStringSet("pinned_tracks", next.pinnedTrackIds.map(Long::toString).toSet())
+            .putStringSet("hidden_home_sections", next.hiddenHomeSections)
+            .putStringSet("pinned_track_keys", next.pinnedTrackKeys)
             .apply()
+    }
+
+    fun saveAppearanceProfile(settings: CathodeSettings) {
+        val encoded = listOf(
+            settings.themePreset.name,
+            settings.customAccentArgb?.toString().orEmpty(),
+            settings.amoled.toString(),
+            settings.compact.toString(),
+            settings.rounded.toString(),
+            settings.monospace.toString(),
+            settings.glowStrength.toString(),
+            settings.animations.toString(),
+            settings.startupAnimation.toString(),
+        ).joinToString("|")
+        preferences.edit().putString("saved_appearance_profile", encoded).apply()
+    }
+
+    fun applyAppearanceProfile() {
+        val parts = preferences.getString("saved_appearance_profile", null)?.split("|") ?: return
+        if (parts.size != 9) return
+        update { current ->
+            current.copy(
+                themePreset = runCatching { ThemePreset.valueOf(parts[0]) }.getOrDefault(current.themePreset),
+                customAccentArgb = parts[1].toIntOrNull(),
+                amoled = parts[2].toBoolean(),
+                compact = parts[3].toBoolean(),
+                rounded = parts[4].toBoolean(),
+                monospace = parts[5].toBoolean(),
+                glowStrength = parts[6].toFloatOrNull()?.coerceIn(0f, 1f) ?: current.glowStrength,
+                animations = parts[7].toBoolean(),
+                startupAnimation = parts[8].toBoolean(),
+            )
+        }
     }
 
     private fun load(): CathodeSettings {
@@ -87,7 +122,8 @@ class CathodeSettingsStore(context: Context) {
             tabOrder = tabOrder,
             hiddenTabs = preferences.getStringSet("hidden_tabs", emptySet()).orEmpty(),
             homeSections = homeSections,
-            pinnedTrackIds = preferences.getStringSet("pinned_tracks", emptySet()).orEmpty().mapNotNull(String::toLongOrNull).toSet(),
+            hiddenHomeSections = preferences.getStringSet("hidden_home_sections", emptySet()).orEmpty(),
+            pinnedTrackKeys = preferences.getStringSet("pinned_track_keys", emptySet()).orEmpty(),
         )
     }
 }

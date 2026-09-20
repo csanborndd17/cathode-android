@@ -34,6 +34,10 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore) {
                 AssistChip(onClick = { store.update { it.copy(themePreset=ThemePreset.ICE, customAccentArgb=null, amoled=true, compact=true, rounded=true, monospace=false, glowStrength=.15f) } }, label={Text("Midnight")})
                 AssistChip(onClick = { store.update { it.copy(themePreset=ThemePreset.GREEN, customAccentArgb=null, amoled=true, compact=true, rounded=false, monospace=true, glowStrength=.55f) } }, label={Text("Terminal")})
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AssistChip(onClick = { store.saveAppearanceProfile(settings) }, label = { Text("Save mine") })
+                AssistChip(onClick = store::applyAppearanceProfile, label = { Text("Apply mine") })
+            }
         }
         item {
             SettingSection("Theme preset")
@@ -108,13 +112,20 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore) {
         }
         items(settings.homeSections.size) { index ->
             val name=settings.homeSections[index]
-            OrderedRow(name,index,settings.homeSections.lastIndex,true,false,onEnabled={},
+            OrderedRow(
+                name, index, settings.homeSections.lastIndex,
+                enabled = name !in settings.hiddenHomeSections,
+                canHide = true,
+                onEnabled = { visible -> store.update {
+                    it.copy(hiddenHomeSections = if (visible) it.hiddenHomeSections - name else it.hiddenHomeSections + name)
+                } },
                 onMove={ delta -> store.update { current ->
                     val list=current.homeSections.toMutableList()
                     val target=(index+delta).coerceIn(0,list.lastIndex)
                     val value=list.removeAt(index); list.add(target,value)
                     current.copy(homeSections=list)
-                } })
+                } },
+            )
         }
         item { Spacer(Modifier.height(24.dp)) }
     }

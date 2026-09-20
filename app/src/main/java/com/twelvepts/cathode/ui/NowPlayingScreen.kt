@@ -58,7 +58,7 @@ import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
 
 @Composable
-fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, onDismiss: () -> Unit) {
+fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
     val view = LocalView.current
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -70,7 +70,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, onDismiss: 
         Box(Modifier.fillMaxSize()) {
             Crossfade(
                 targetState = state.artworkUri,
-                animationSpec = tween(650),
+                animationSpec = tween(if (animations) 650 else 0),
                 label = "now-playing-background",
             ) { artwork ->
                 AsyncImage(
@@ -109,7 +109,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, onDismiss: 
                 Spacer(Modifier.height(10.dp))
                 Crossfade(
                     targetState = state.artworkUri,
-                    animationSpec = tween(450),
+                    animationSpec = tween(if (animations) 450 else 0),
                     label = "now-playing-artwork",
                 ) { artwork ->
                     AsyncImage(
@@ -180,7 +180,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, onDismiss: 
                     ) {
                         Crossfade(
                             targetState = state.isPlaying,
-                            animationSpec = tween(180),
+                            animationSpec = tween(if (animations) 180 else 0),
                             label = "play-pause",
                         ) { playing ->
                             Icon(

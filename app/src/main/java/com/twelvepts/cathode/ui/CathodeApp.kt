@@ -181,17 +181,17 @@ fun CathodeApp(
                     onPlay = { player.play(library.tracks, it) },
                     onEdit = viewModel::updateMetadata,
                 )
-                CathodeTab.Acquire -> AcquireScreen(onDownloadStarted = viewModel::rescan)
+                CathodeTab.Acquire -> AcquireScreen()
                 CathodeTab.Settings -> SettingsScreen(settings = settings, store = settingsStore)
             }
         }
     }
 
     if (showPlayer) {
-        NowPlayingScreen(playback, player, onDismiss = { showPlayer = false })
+        NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
     }
 
-    AnimatedVisibility(visible = showStartup, exit = fadeOut(tween(450))) {
+    AnimatedVisibility(visible = showStartup, exit = fadeOut(tween(if (settings.animations) 450 else 0))) {
         StartupReveal(logoRevealed)
     }
 }

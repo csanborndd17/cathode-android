@@ -14,13 +14,26 @@ data class AudioTrack(
     val year: Int,
     val mimeType: String?,
     val relativePath: String?,
+    val displayName: String,
+    val fileSize: Long,
     val tags: String = "",
     val customArtworkUri: String? = null,
 ) {
+    val stableKey: String
+        get() = stableTrackKey(relativePath, displayName, fileSize)
+
     val artworkUri: Uri
         get() = customArtworkUri?.takeIf(String::isNotBlank)?.let(Uri::parse)
             ?: Uri.parse("content://media/external/audio/albumart/$albumId")
 
     val isMonochromeDownload: Boolean
         get() = relativePath?.contains("Monochrome", ignoreCase = true) == true
+}
+
+
+fun stableTrackKey(relativePath: String?, displayName: String, fileSize: Long): String {
+    val source = "${relativePath.orEmpty().trim().lowercase()}|${displayName.trim().lowercase()}|$fileSize"
+    return java.security.MessageDigest.getInstance("SHA-256")
+        .digest(source.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 }

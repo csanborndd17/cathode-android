@@ -23,6 +23,8 @@ class AudioLibraryRepository(private val context: Context) {
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.YEAR,
             MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.SIZE,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             projection += MediaStore.Audio.Media.RELATIVE_PATH
@@ -46,30 +48,38 @@ class AudioLibraryRepository(private val context: Context) {
             val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
             val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+            val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
             } else -1
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
-                val key = id.toString()
+                val legacyKey = id.toString()
+                val displayName = cursor.getString(displayNameColumn).orUnknown("track-$id")
+                val fileSize = cursor.getLong(sizeColumn)
+                val relativePath = if (pathColumn >= 0) cursor.getString(pathColumn) else null
+                val key = com.twelvepts.cathode.model.stableTrackKey(relativePath, displayName, fileSize)
                 val sourceTitle = cursor.getString(titleColumn).orUnknown("Unknown track")
                 val sourceArtist = cursor.getString(artistColumn).orUnknown("Unknown artist")
                 val sourceAlbum = cursor.getString(albumColumn).orUnknown("Unknown album")
                 result += AudioTrack(
                     id = id,
                     uri = ContentUris.withAppendedId(collection, id),
-                    title = metadata.getString("$key.title", sourceTitle).orUnknown(sourceTitle),
-                    artist = metadata.getString("$key.artist", sourceArtist).orUnknown(sourceArtist),
-                    album = metadata.getString("$key.album", sourceAlbum).orUnknown(sourceAlbum),
+                    title = metadata.getString("$key.title", metadata.getString("$legacyKey.title", sourceTitle)).orUnknown(sourceTitle),
+                    artist = metadata.getString("$key.artist", metadata.getString("$legacyKey.artist", sourceArtist)).orUnknown(sourceArtist),
+                    album = metadata.getString("$key.album", metadata.getString("$legacyKey.album", sourceAlbum)).orUnknown(sourceAlbum),
                     albumId = cursor.getLong(albumIdColumn),
                     durationMs = cursor.getLong(durationColumn),
                     trackNumber = cursor.getInt(trackColumn) % 1000,
                     year = cursor.getInt(yearColumn),
                     mimeType = cursor.getString(mimeColumn),
-                    relativePath = if (pathColumn >= 0) cursor.getString(pathColumn) else null,
-                    tags = metadata.getString("$key.tags", "").orEmpty(),
-                    customArtworkUri = metadata.getString("$key.artwork", null),
+                    relativePath = relativePath,
+                    displayName = displayName,
+                    fileSize = fileSize,
+                    tags = metadata.getString("$key.tags", metadata.getString("$legacyKey.tags", "")).orEmpty(),
+                    customArtworkUri = metadata.getString("$key.artwork", metadata.getString("$legacyKey.artwork", null)),
                 )
             }
         }
@@ -94,12 +104,12 @@ class AudioLibraryRepository(private val context: Context) {
             .joinToString(", ")
 
         metadata.edit().apply {
-            putString("${track.id}.title", cleanTitle)
-            putString("${track.id}.artist", cleanArtist)
-            putString("${track.id}.album", cleanAlbum)
-            putString("${track.id}.tags", cleanTags)
-            if (customArtworkUri.isNullOrBlank()) remove("${track.id}.artwork")
-            else putString("${track.id}.artwork", customArtworkUri)
+            putString("${track.stableKey}.title", cleanTitle)
+            putString("${track.stableKey}.artist", cleanArtist)
+            putString("${track.stableKey}.album", cleanAlbum)
+            putString("${track.stableKey}.tags", cleanTags)
+            if (customArtworkUri.isNullOrBlank()) remove("${track.stableKey}.artwork")
+            else putString("${track.stableKey}.artwork", customArtworkUri)
         }.apply()
 
         return track.copy(
