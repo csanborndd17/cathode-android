@@ -1,5 +1,8 @@
 package com.twelvepts.cathode.ui
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -36,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,7 +50,7 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.model.AudioTrack
 
-typealias MetadataEditor = (AudioTrack, String, String, String, String) -> Unit
+typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
 
 @Composable
 fun HomeScreen(
@@ -210,8 +216,8 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: Me
         MetadataDialog(
             track = track,
             onDismiss = { editing = false },
-            onSave = { title, artist, album, tags ->
-                onEdit(track, title, artist, album, tags)
+            onSave = { title, artist, album, tags, artworkUri ->
+                onEdit(track, title, artist, album, tags, artworkUri)
                 editing = false
             },
         )
@@ -222,18 +228,43 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: Me
 private fun MetadataDialog(
     track: AudioTrack,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String) -> Unit,
+    onSave: (String, String, String, String, String?) -> Unit,
 ) {
+    val context = LocalContext.current
     var title by remember(track.id) { mutableStateOf(track.title) }
     var artist by remember(track.id) { mutableStateOf(track.artist) }
     var album by remember(track.id) { mutableStateOf(track.album) }
     var tags by remember(track.id) { mutableStateOf(track.tags) }
+    var artworkUri by remember(track.id) { mutableStateOf(track.customArtworkUri) }
+    val artworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            artworkUri = uri.toString()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit track details") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AsyncImage(
+                    model = artworkUri ?: track.artworkUri,
+                    contentDescription = "Selected cover",
+                    modifier = Modifier.size(112.dp).align(Alignment.CenterHorizontally),
+                    contentScale = ContentScale.Crop,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    TextButton(onClick = { artworkPicker.launch(arrayOf("image/*")) }) { Text("Choose cover") }
+                    if (artworkUri != null) {
+                        TextButton(onClick = { artworkUri = null }) { Text("Use original") }
+                    }
+                }
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
                 OutlinedTextField(artist, { artist = it }, label = { Text("Artist") }, singleLine = true)
                 OutlinedTextField(album, { album = it }, label = { Text("Album") }, singleLine = true)
@@ -250,7 +281,7 @@ private fun MetadataDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags, artworkUri) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
