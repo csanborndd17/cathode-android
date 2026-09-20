@@ -43,16 +43,16 @@ fun CathodeTheme(settings: CathodeSettings, content: @Composable () -> Unit) {
     CathodeGlowStrength = settings.glowStrength
 
     val family = if (settings.monospace) FontFamily.Monospace else FontFamily.SansSerif
-    val adjustment = if (settings.compact) (-1).sp else 0.sp
+    val adjustment = if (settings.compact) -1 else 0
     val typography = Typography(
-        displaySmall = TextStyle(fontFamily = family, fontSize = 34.sp + adjustment),
-        headlineMedium = TextStyle(fontFamily = family, fontSize = 28.sp + adjustment),
-        titleLarge = TextStyle(fontFamily = family, fontSize = 22.sp + adjustment),
-        titleMedium = TextStyle(fontFamily = family, fontSize = 17.sp + adjustment),
-        bodyLarge = TextStyle(fontFamily = family, fontSize = 16.sp + adjustment),
-        bodyMedium = TextStyle(fontFamily = family, fontSize = 14.sp + adjustment),
-        labelLarge = TextStyle(fontFamily = if (settings.monospace) family else FontFamily.Monospace, fontSize = 13.sp + adjustment),
-        labelMedium = TextStyle(fontFamily = family, fontSize = 12.sp + adjustment),
+        displaySmall = TextStyle(fontFamily = family, fontSize = (34 + adjustment).sp),
+        headlineMedium = TextStyle(fontFamily = family, fontSize = (28 + adjustment).sp),
+        titleLarge = TextStyle(fontFamily = family, fontSize = (22 + adjustment).sp),
+        titleMedium = TextStyle(fontFamily = family, fontSize = (17 + adjustment).sp),
+        bodyLarge = TextStyle(fontFamily = family, fontSize = (16 + adjustment).sp),
+        bodyMedium = TextStyle(fontFamily = family, fontSize = (14 + adjustment).sp),
+        labelLarge = TextStyle(fontFamily = if (settings.monospace) family else FontFamily.Monospace, fontSize = (13 + adjustment).sp),
+        labelMedium = TextStyle(fontFamily = family, fontSize = (12 + adjustment).sp),
     )
     val radius = if (settings.rounded) 18.dp else 2.dp
     val shapes = Shapes(
