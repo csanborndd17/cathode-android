@@ -1,7 +1,12 @@
 package com.twelvepts.cathode.ui
 
+import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,8 +42,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,106 +59,163 @@ import com.twelvepts.cathode.playback.PlayerConnection
 
 @Composable
 fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, onDismiss: () -> Unit) {
+    val view = LocalView.current
+    fun haptic() {
+        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    }
+
+    BackHandler(onBack = onDismiss)
+
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 8.dp),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, "Back", tint = CathodeCyan) }
-                Text(
-                    "Now playing",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
+        Box(Modifier.fillMaxSize()) {
+            Crossfade(
+                targetState = state.artworkUri,
+                animationSpec = tween(650),
+                label = "now-playing-background",
+            ) { artwork ->
+                AsyncImage(
+                    model = artwork,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().blur(34.dp).alpha(.32f),
+                    contentScale = ContentScale.Crop,
                 )
-                Spacer(Modifier.size(48.dp))
             }
-            Spacer(Modifier.height(10.dp))
-            AsyncImage(
-                model = state.artworkUri,
-                contentDescription = "Album cover",
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .fillMaxWidth()
-                    .heightIn(max = 360.dp)
-                    .aspectRatio(1f)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(CathodePanel),
-                contentScale = ContentScale.Crop,
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                state.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(10.dp))
-            Slider(
-                value = state.positionMs.toFloat().coerceIn(0f, state.durationMs.coerceAtLeast(1).toFloat()),
-                onValueChange = { player.seekTo(it.toLong()) },
-                valueRange = 0f..state.durationMs.coerceAtLeast(1).toFloat(),
-                colors = SliderDefaults.colors(
-                    thumbColor = CathodeCyan,
-                    activeTrackColor = CathodeCyan,
-                    inactiveTrackColor = CathodeDim,
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        0f to CathodeBlack.copy(alpha = .35f),
+                        .48f to CathodeBlack.copy(alpha = .62f),
+                        1f to CathodeBlack,
+                    ),
                 ),
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(formatDuration(state.positionMs), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.ArrowBack, "Collapse player", tint = CathodeCyan) }
+                    Text(
+                        "Now playing",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.size(48.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                Crossfade(
+                    targetState = state.artworkUri,
+                    animationSpec = tween(450),
+                    label = "now-playing-artwork",
+                ) { artwork ->
+                    AsyncImage(
+                        model = artwork,
+                        contentDescription = "Album cover",
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .fillMaxWidth()
+                            .heightIn(max = 350.dp)
+                            .aspectRatio(1f)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(CathodePanel),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
                 Text(
-                    "-${formatDuration((state.durationMs - state.positionMs).coerceAtLeast(0))}",
-                    color = CathodeMuted,
+                    state.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                Slider(
+                    value = state.positionMs.toFloat().coerceIn(0f, state.durationMs.coerceAtLeast(1).toFloat()),
+                    onValueChange = { player.seekTo(it.toLong()) },
+                    valueRange = 0f..state.durationMs.coerceAtLeast(1).toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = CathodeCyan,
+                        activeTrackColor = CathodeCyan,
+                        inactiveTrackColor = CathodeDim,
+                    ),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatDuration(state.positionMs), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        "-${formatDuration((state.durationMs - state.positionMs).coerceAtLeast(0))}",
+                        color = CathodeMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = {
+                        haptic()
+                        player.setShuffle(!state.shuffleEnabled)
+                    }) {
+                        Icon(Icons.Default.Shuffle, "Shuffle", tint = if (state.shuffleEnabled) CathodeCyan else CathodeMuted)
+                    }
+                    IconButton(onClick = {
+                        haptic()
+                        player.previous()
+                    }) {
+                        Icon(Icons.Default.SkipPrevious, "Previous", tint = CathodeText, modifier = Modifier.size(34.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            haptic()
+                            player.togglePlayPause()
+                        },
+                        modifier = Modifier.size(64.dp).clip(CircleShape).background(CathodeCyan),
+                    ) {
+                        Crossfade(
+                            targetState = state.isPlaying,
+                            animationSpec = tween(180),
+                            label = "play-pause",
+                        ) { playing ->
+                            Icon(
+                                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                if (playing) "Pause" else "Play",
+                                tint = CathodeBlack,
+                                modifier = Modifier.size(38.dp),
+                            )
+                        }
+                    }
+                    IconButton(onClick = {
+                        haptic()
+                        player.next()
+                    }) {
+                        Icon(Icons.Default.SkipNext, "Next", tint = CathodeText, modifier = Modifier.size(34.dp))
+                    }
+                    IconButton(onClick = {
+                        haptic()
+                        player.cycleRepeat()
+                    }) {
+                        Icon(
+                            if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                            "Repeat",
+                            tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) CathodeMuted else CathodeCyan,
+                        )
+                    }
+                }
+                Text(
+                    "LOCAL PLAYBACK",
+                    color = CathodeDim,
                     style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                    textAlign = TextAlign.Center,
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { player.setShuffle(!state.shuffleEnabled) }) {
-                    Icon(Icons.Default.Shuffle, "Shuffle", tint = if (state.shuffleEnabled) CathodeCyan else CathodeMuted)
-                }
-                IconButton(onClick = player::previous) {
-                    Icon(Icons.Default.SkipPrevious, "Previous", tint = CathodeText, modifier = Modifier.size(34.dp))
-                }
-                IconButton(
-                    onClick = player::togglePlayPause,
-                    modifier = Modifier.size(64.dp).clip(CircleShape).background(CathodeCyan),
-                ) {
-                    Icon(
-                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (state.isPlaying) "Pause" else "Play",
-                        tint = CathodeBlack,
-                        modifier = Modifier.size(38.dp),
-                    )
-                }
-                IconButton(onClick = player::next) {
-                    Icon(Icons.Default.SkipNext, "Next", tint = CathodeText, modifier = Modifier.size(34.dp))
-                }
-                IconButton(onClick = player::cycleRepeat) {
-                    Icon(
-                        if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                        "Repeat",
-                        tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) CathodeMuted else CathodeCyan,
-                    )
-                }
-            }
-            Text(
-                "LOCAL PLAYBACK",
-                color = CathodeDim,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
