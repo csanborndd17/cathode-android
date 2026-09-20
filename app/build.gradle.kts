@@ -37,9 +37,9 @@ kotlin {
 
 dependencies {
     implementation("androidx.activity:activity-compose:1.12.3")
-    implementation("androidx.compose.ui:ui:1.12.1")
-    implementation("androidx.compose.ui:ui-tooling-preview:1.12.1")
-    implementation("androidx.compose.foundation:foundation:1.12.1")
+    implementation("androidx.compose.ui:ui:1.9.3")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.9.3")
+    implementation("androidx.compose.foundation:foundation:1.9.3")
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
@@ -51,7 +51,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.1")
-    debugImplementation("androidx.compose.ui:ui-tooling:1.12.1")
-    debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.9.3")
+    debugImplementation("androidx.compose.ui:ui-tooling:1.9.3")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.9.3")
 }
