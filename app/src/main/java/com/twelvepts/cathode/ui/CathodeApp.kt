@@ -83,7 +83,10 @@ fun CathodeApp(
         settingsStore.update { it.copy(lastTab = next.name) }
     }
 
-    BackHandler(enabled = !showPlayer && !showSettings && !showTransmission && tab != CathodeTab.Listen) {
+    BackHandler(enabled = drawerState.isOpen && !showPlayer && !showSettings && !showTransmission) {
+        scope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = drawerState.isClosed && !showPlayer && !showSettings && !showTransmission && tab != CathodeTab.Listen) {
         selectTab(CathodeTab.Listen)
     }
 

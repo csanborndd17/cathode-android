@@ -43,6 +43,7 @@ data class CathodeSettings(
     val libraryGrid: Boolean = false,
     val profileName: String = "Listener",
     val profileImageUri: String? = null,
+    val transmissionLogSeenYear: Int = 0,
 ) {
     companion object {
         val defaultTabs = listOf("Listen", "Library", "Discover")
@@ -81,6 +82,7 @@ class CathodeSettingsStore(context: Context) {
             .putBoolean("library_grid", next.libraryGrid)
             .putString("profile_name", next.profileName)
             .apply { if (next.profileImageUri == null) remove("profile_image") else putString("profile_image", next.profileImageUri) }
+            .putInt("transmission_log_seen_year", next.transmissionLogSeenYear)
             .apply()
     }
 
@@ -146,6 +148,7 @@ class CathodeSettingsStore(context: Context) {
             libraryGrid = preferences.getBoolean("library_grid", false),
             profileName = preferences.getString("profile_name", "Listener") ?: "Listener",
             profileImageUri = preferences.getString("profile_image", null),
+            transmissionLogSeenYear = preferences.getInt("transmission_log_seen_year", 0),
         )
     }
 }

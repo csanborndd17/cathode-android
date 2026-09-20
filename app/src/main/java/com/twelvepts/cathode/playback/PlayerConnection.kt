@@ -2,6 +2,7 @@ package com.twelvepts.cathode.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -13,17 +14,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+data class QueueEntry(
+    val mediaId: String,
+    val title: String,
+    val artist: String,
+    val artworkUri: Uri?,
+)
+
 data class PlaybackState(
     val connected: Boolean = false,
     val isPlaying: Boolean = false,
     val title: String = "",
     val artist: String = "",
-    val artworkUri: android.net.Uri? = null,
+    val artworkUri: Uri? = null,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val mediaItemIndex: Int = 0,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
+    val queue: List<QueueEntry> = emptyList(),
 )
 
 class PlayerConnection(context: Context) : Player.Listener {
@@ -59,6 +68,24 @@ class PlayerConnection(context: Context) : Player.Listener {
     fun next() = controller?.seekToNextMediaItem()
     fun previous() = controller?.let { if (it.currentPosition > 4_000) it.seekTo(0) else it.seekToPreviousMediaItem() }
     fun setShuffle(enabled: Boolean) { controller?.shuffleModeEnabled = enabled }
+    fun playQueueIndex(index: Int) = controller?.let {
+        if (index in 0 until it.mediaItemCount) {
+            it.seekToDefaultPosition(index)
+            it.play()
+        }
+    }
+    fun removeQueueItem(index: Int) = controller?.let {
+        if (index in 0 until it.mediaItemCount) it.removeMediaItem(index)
+    }
+    fun moveQueueItem(from: Int, to: Int) = controller?.let {
+        if (from in 0 until it.mediaItemCount && to in 0 until it.mediaItemCount && from != to) {
+            it.moveMediaItem(from, to)
+        }
+    }
+    fun clearUpcoming() = controller?.let {
+        val current = it.currentMediaItemIndex
+        if (current >= 0 && current + 1 < it.mediaItemCount) it.removeMediaItems(current + 1, it.mediaItemCount)
+    }
     fun cycleRepeat() {
         controller?.repeatMode = when (controller?.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -70,19 +97,29 @@ class PlayerConnection(context: Context) : Player.Listener {
     fun refreshPosition() = publishState()
 
     private fun publishState() {
-        controller?.let { player ->
-            val metadata = player.mediaMetadata
+        controller?.let { p ->
+            val metadata = p.mediaMetadata
+            val queue = (0 until p.mediaItemCount).map { index ->
+                val item = p.getMediaItemAt(index)
+                QueueEntry(
+                    mediaId = item.mediaId,
+                    title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown title" },
+                    artist = item.mediaMetadata.artist?.toString().orEmpty().ifBlank { "Unknown artist" },
+                    artworkUri = item.mediaMetadata.artworkUri,
+                )
+            }
             _state.value = PlaybackState(
                 connected = true,
-                isPlaying = player.isPlaying,
+                isPlaying = p.isPlaying,
                 title = metadata.title?.toString().orEmpty(),
                 artist = metadata.artist?.toString().orEmpty(),
                 artworkUri = metadata.artworkUri,
-                positionMs = player.currentPosition.coerceAtLeast(0),
-                durationMs = player.duration.takeIf { it > 0 } ?: 0,
-                mediaItemIndex = player.currentMediaItemIndex,
-                repeatMode = player.repeatMode,
-                shuffleEnabled = player.shuffleModeEnabled,
+                positionMs = p.currentPosition.coerceAtLeast(0),
+                durationMs = p.duration.takeIf { it > 0 } ?: 0,
+                mediaItemIndex = p.currentMediaItemIndex,
+                repeatMode = p.repeatMode,
+                shuffleEnabled = p.shuffleModeEnabled,
+                queue = queue,
             )
         }
     }

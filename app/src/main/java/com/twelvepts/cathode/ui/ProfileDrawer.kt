@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
+import java.util.Calendar
 
 @Composable
 fun ProfileDrawerContent(
@@ -33,6 +34,8 @@ fun ProfileDrawerContent(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val transmissionIsNew = settings.transmissionLogSeenYear < currentYear
     var editing by remember { mutableStateOf(false) }
     var name by remember(settings.profileName) { mutableStateOf(settings.profileName) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -63,8 +66,12 @@ fun ProfileDrawerContent(
             label = { Column { Text("Transmission Log"); Text("Your listening record", color = CathodeMuted, style = MaterialTheme.typography.labelMedium) } },
             selected = false,
             icon = { Icon(Icons.Default.Equalizer, null, tint = CathodeCyan) },
-            badge = { if (library.playCounts.isNotEmpty()) Badge { Text("NEW") } },
-            onClick = { onClose(); onTransmission() },
+            badge = { if (transmissionIsNew) Badge { Text("NEW") } },
+            onClick = {
+                store.update { it.copy(transmissionLogSeenYear = currentYear) }
+                onClose()
+                onTransmission()
+            },
         )
         NavigationDrawerItem(
             label = { Text("Settings") },

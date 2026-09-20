@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,11 +21,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -40,6 +47,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -60,11 +71,12 @@ import com.twelvepts.cathode.playback.PlayerConnection
 @Composable
 fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
     val view = LocalView.current
+    var showQueue by remember { mutableStateOf(false) }
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    BackHandler(onBack = onDismiss)
+    BackHandler { if (showQueue) showQueue = false else onDismiss() }
 
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Box(Modifier.fillMaxSize()) {
@@ -104,7 +116,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                     )
-                    Spacer(Modifier.size(48.dp))
+                    IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Open queue", tint = CathodeCyan) }
                 }
                 Spacer(Modifier.height(10.dp))
                 Crossfade(
@@ -215,6 +227,55 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
                     textAlign = TextAlign.Center,
                 )
+            }
+        }
+    }
+    if (showQueue) QueueScreen(state, player) { showQueue = false }
+}
+
+@Composable
+private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose: () -> Unit) {
+    Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Back to now playing", tint = CathodeCyan) }
+                Column(Modifier.weight(1f)) {
+                    Text("PLAYBACK QUEUE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text("${state.queue.size} tracks", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                }
+                TextButton(onClick = player::clearUpcoming, enabled = state.mediaItemIndex + 1 < state.queue.size) {
+                    Text("Clear upcoming")
+                }
+            }
+            LazyColumn(Modifier.fillMaxSize()) {
+                itemsIndexed(state.queue, key = { index, item -> "${item.mediaId}-$index" }) { index, item ->
+                    val current = index == state.mediaItemIndex
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(if (current) CathodeCyan.copy(alpha = .12f) else CathodeBlack)
+                            .clickable { player.playQueueIndex(index) }
+                            .padding(start = 16.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AsyncImage(item.artworkUri, null, Modifier.size(48.dp).clip(MaterialTheme.shapes.small).background(CathodePanel), contentScale = ContentScale.Crop)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(item.title, color = if (current) CathodeCyan else CathodeText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(item.artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        }
+                        IconButton(onClick = { player.moveQueueItem(index, index - 1) }, enabled = index > 0) {
+                            Icon(Icons.Default.ArrowUpward, "Move up", tint = CathodeMuted)
+                        }
+                        IconButton(onClick = { player.moveQueueItem(index, index + 1) }, enabled = index < state.queue.lastIndex) {
+                            Icon(Icons.Default.ArrowDownward, "Move down", tint = CathodeMuted)
+                        }
+                        IconButton(onClick = { player.removeQueueItem(index) }, enabled = state.queue.size > 1) {
+                            Icon(Icons.Default.Delete, "Remove from queue", tint = CathodeMuted)
+                        }
+                    }
+                }
             }
         }
     }
