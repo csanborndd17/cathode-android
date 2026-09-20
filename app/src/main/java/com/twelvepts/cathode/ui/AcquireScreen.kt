@@ -32,7 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
-private const val MONOCHROME_URL = "https://monochrome.samidy.com/"
+private const val MONOCHROME_URL = "https://monochrome.tf/"
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
