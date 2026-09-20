@@ -1,11 +1,13 @@
 package com.twelvepts.cathode.ui
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,9 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -28,6 +34,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +61,7 @@ import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.model.AudioTrack
 
 typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
+typealias MetadataResetter = (AudioTrack) -> Unit
 
 @Composable
 fun HomeScreen(
@@ -60,6 +69,7 @@ fun HomeScreen(
     onRescan: () -> Unit,
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
+    onReset: MetadataResetter,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
@@ -89,12 +99,12 @@ fun HomeScreen(
             when (section) {
                 "Pinned" -> if (pinned.isNotEmpty()) {
                     item { SectionLabel("Pinned") }
-                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,true,{togglePin(it)}) }
+                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,onReset,true,{togglePin(it)}) }
                 }
                 "Recently added" -> if (state.tracks.isNotEmpty()) {
                     item { SectionLabel("Recently added") }
                     items(state.tracks.take(12), key = { "recent-${it.id}" }) {
-                        TrackRow(it,onPlay,onEdit,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)})
+                        TrackRow(it,onPlay,onEdit,onReset,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)})
                     }
                 }
             }
@@ -109,16 +119,35 @@ fun LibraryScreen(
     onRescan: () -> Unit,
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
+    onReset: MetadataResetter,
+    settings: CathodeSettings,
+    store: CathodeSettingsStore,
 ) {
+    var selectedGroup by remember(settings.libraryCategory) { mutableStateOf<String?>(null) }
+    val sorted = remember(state.tracks, settings.librarySort) { sortTracks(state.tracks, settings.librarySort) }
+    val groups = remember(sorted, settings.libraryCategory) {
+        when (settings.libraryCategory) {
+            LibraryCategory.SONGS -> emptyList()
+            LibraryCategory.ALBUMS -> sorted.groupBy { "${it.artist}\u0000${it.album}" }
+                .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, tracks.first().artist, tracks) }
+            LibraryCategory.ARTISTS -> sorted.groupBy(AudioTrack::artist)
+                .map { (key, tracks) -> LibraryGroup(key, key, "${tracks.size} songs", tracks) }
+            LibraryCategory.FOLDERS -> sorted.groupBy { it.relativePath ?: "Unknown folder" }
+                .map { (key, tracks) -> LibraryGroup(key, key.trimEnd('/').substringAfterLast('/'), "${tracks.size} songs", tracks) }
+        }.sortedBy { it.title.lowercase() }
+    }
+    val detail = groups.firstOrNull { it.key == selectedGroup }
+    BackHandler(enabled = detail != null) { selectedGroup = null }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (detail != null) IconButton(onClick = { selectedGroup = null }) {
+                Icon(Icons.Default.ArrowBack, "Back to library", tint = CathodeCyan)
+            }
             Column(Modifier.weight(1f)) {
                 Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                Text("Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text("All local audio", color = CathodeMuted)
+                Text(detail?.title ?: "Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(detail?.subtitle ?: "${state.tracks.size} local tracks", color = CathodeMuted)
             }
             IconButton(onClick = onRescan, enabled = !state.loading) {
                 Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan)
@@ -126,17 +155,96 @@ fun LibraryScreen(
         }
         when {
             !state.permissionGranted -> PermissionPanel(requestPermission)
-            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = CathodeCyan)
-            }
+            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CathodeCyan) }
             state.error != null -> MessagePanel("Library scan failed", state.error, CathodeError)
             state.tracks.isEmpty() -> EmptyLibrary(true)
-            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(state.tracks, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
+            detail != null -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(detail.tracks, key = AudioTrack::stableKey) { TrackRow(it, onPlay, onEdit, onReset) }
                 item { Spacer(Modifier.height(12.dp)) }
+            }
+            else -> {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LibraryCategory.entries.forEach { category ->
+                        FilterChip(
+                            selected = settings.libraryCategory == category,
+                            onClick = { store.update { it.copy(libraryCategory = category) } },
+                            label = { Text(category.label) },
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LibrarySort.entries.forEach { sort ->
+                        FilterChip(
+                            selected = settings.librarySort == sort,
+                            onClick = { store.update { it.copy(librarySort = sort) } },
+                            label = { Text(sort.label) },
+                        )
+                    }
+                }
+                if (settings.libraryCategory != LibraryCategory.SONGS) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        FilterChip(
+                            selected = settings.libraryGrid,
+                            onClick = { store.update { it.copy(libraryGrid = !it.libraryGrid) } },
+                            label = { Text(if (settings.libraryGrid) "Grid" else "List") },
+                        )
+                    }
+                }
+                if (settings.libraryCategory == LibraryCategory.SONGS) {
+                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(sorted, key = AudioTrack::stableKey) { TrackRow(it, onPlay, onEdit, onReset) }
+                        item { Spacer(Modifier.height(12.dp)) }
+                    }
+                } else if (settings.libraryGrid) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(150.dp),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        gridItems(groups, key = LibraryGroup::key) { group -> LibraryGroupCard(group) { selectedGroup = group.key } }
+                    }
+                } else {
+                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(groups, key = LibraryGroup::key) { group -> LibraryGroupRow(group) { selectedGroup = group.key } }
+                    }
+                }
             }
         }
     }
+}
+
+private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
+
+@Composable
+private fun LibraryGroupRow(group: LibraryGroup, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        AsyncImage(group.tracks.firstOrNull()?.artworkUri, null, Modifier.size(58.dp).background(CathodePanel), contentScale = ContentScale.Crop)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(group.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(group.subtitle, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+        Text("${group.tracks.size}", color = CathodeDim)
+    }
+}
+
+@Composable
+private fun LibraryGroupCard(group: LibraryGroup, onClick: () -> Unit) {
+    Card(onClick = onClick) {
+        Column {
+            AsyncImage(group.tracks.firstOrNull()?.artworkUri, null, Modifier.fillMaxWidth().aspectRatio(1f).background(CathodePanel), contentScale = ContentScale.Crop)
+            Text(group.title, Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(group.subtitle, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp), color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+    }
+}
+
+private fun sortTracks(tracks: List<AudioTrack>, sort: LibrarySort): List<AudioTrack> = when (sort) {
+    LibrarySort.RECENT -> tracks.sortedByDescending(AudioTrack::dateAddedSeconds)
+    LibrarySort.TITLE -> tracks.sortedBy { it.title.lowercase() }
+    LibrarySort.ARTIST -> tracks.sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, AudioTrack::trackNumber))
+    LibrarySort.ALBUM -> tracks.sortedWith(compareBy({ it.album.lowercase() }, AudioTrack::trackNumber))
+    LibrarySort.DURATION -> tracks.sortedByDescending(AudioTrack::durationMs)
 }
 
 @Composable
@@ -144,6 +252,7 @@ fun SearchScreen(
     tracks: List<AudioTrack>,
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
+    onReset: MetadataResetter,
 ) {
     var query by remember { mutableStateOf("") }
     val results = remember(query, tracks) {
@@ -180,14 +289,14 @@ fun SearchScreen(
             query.isBlank() -> MessagePanel("Search your music", "Custom tags are searchable too.", CathodeMuted)
             results.isEmpty() -> MessagePanel("No results", "Try another title, artist, album, or tag.", CathodeMuted)
             else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(results, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
+                items(results, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit, onReset) }
             }
         }
     }
 }
 
 @Composable
-private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, pinned: Boolean = false, onPin: (() -> Unit)? = null) {
+private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, onReset: MetadataResetter, pinned: Boolean = false, onPin: (() -> Unit)? = null) {
     var editing by remember(track.id) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp),
@@ -224,6 +333,7 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: Me
         MetadataDialog(
             track = track,
             onDismiss = { editing = false },
+            onReset = { onReset(track); editing = false },
             onSave = { title, artist, album, tags, artworkUri ->
                 onEdit(track, title, artist, album, tags, artworkUri)
                 editing = false
@@ -236,6 +346,7 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: Me
 private fun MetadataDialog(
     track: AudioTrack,
     onDismiss: () -> Unit,
+    onReset: () -> Unit,
     onSave: (String, String, String, String, String?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -283,6 +394,18 @@ private fun MetadataDialog(
                     supportingText = { Text("Separate tags with commas, e.g. twenty one pilots, demo") },
                 )
                 Text(
+                    buildString {
+                        append(track.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO")
+                        if (track.year > 0) append(" · ${track.year}")
+                        if (track.trackNumber > 0) append(" · TRACK ${track.trackNumber}")
+                        append(" · ${"%.1f".format(track.fileSize / 1_048_576.0)} MB")
+                        append("\n${track.displayName}")
+                        track.relativePath?.let { append("\n$it") }
+                    },
+                    color = CathodeDim,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
                     "Changes are stored in Cathode and do not rewrite the original audio file.",
                     color = CathodeMuted,
                     style = MaterialTheme.typography.labelMedium,
@@ -290,7 +413,12 @@ private fun MetadataDialog(
             }
         },
         confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags, artworkUri) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onReset) { Text("Reset") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 

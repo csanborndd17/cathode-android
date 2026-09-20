@@ -9,6 +9,12 @@ enum class ThemePreset(val label: String) {
     CYAN("Cathode Cyan"), AMBER("Amber CRT"), GREEN("Phosphor Green"),
     ULTRAVIOLET("Ultraviolet"), ICE("Ice White"),
 }
+enum class LibraryCategory(val label: String) {
+    SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), FOLDERS("Folders"),
+}
+enum class LibrarySort(val label: String) {
+    RECENT("Recent"), TITLE("Title"), ARTIST("Artist"), ALBUM("Album"), DURATION("Duration"),
+}
 enum class NavigationStyle(val label: String) {
     LABELED("Icons + labels"), ICONS_ONLY("Icons only"), COMPACT("Compact"),
 }
@@ -31,6 +37,9 @@ data class CathodeSettings(
     val homeSections: List<String> = defaultHomeSections,
     val hiddenHomeSections: Set<String> = emptySet(),
     val pinnedTrackKeys: Set<String> = emptySet(),
+    val libraryCategory: LibraryCategory = LibraryCategory.SONGS,
+    val librarySort: LibrarySort = LibrarySort.RECENT,
+    val libraryGrid: Boolean = false,
 ) {
     companion object {
         val defaultTabs = listOf("Home", "Search", "Library", "Acquire", "Settings")
@@ -64,6 +73,9 @@ class CathodeSettingsStore(context: Context) {
             .putString("home_sections", next.homeSections.joinToString(","))
             .putStringSet("hidden_home_sections", next.hiddenHomeSections)
             .putStringSet("pinned_track_keys", next.pinnedTrackKeys)
+            .putString("library_category", next.libraryCategory.name)
+            .putString("library_sort", next.librarySort.name)
+            .putBoolean("library_grid", next.libraryGrid)
             .apply()
     }
 
@@ -124,6 +136,9 @@ class CathodeSettingsStore(context: Context) {
             homeSections = homeSections,
             hiddenHomeSections = preferences.getStringSet("hidden_home_sections", emptySet()).orEmpty(),
             pinnedTrackKeys = preferences.getStringSet("pinned_track_keys", emptySet()).orEmpty(),
+            libraryCategory = runCatching { LibraryCategory.valueOf(preferences.getString("library_category", LibraryCategory.SONGS.name)!!) }.getOrDefault(LibraryCategory.SONGS),
+            librarySort = runCatching { LibrarySort.valueOf(preferences.getString("library_sort", LibrarySort.RECENT.name)!!) }.getOrDefault(LibrarySort.RECENT),
+            libraryGrid = preferences.getBoolean("library_grid", false),
         )
     }
 }

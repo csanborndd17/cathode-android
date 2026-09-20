@@ -39,6 +39,11 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun resetMetadata(track: AudioTrack) {
+        repository.clearMetadata(track)
+        rescan()
+    }
+
     fun updateMetadata(
         track: AudioTrack,
         title: String,

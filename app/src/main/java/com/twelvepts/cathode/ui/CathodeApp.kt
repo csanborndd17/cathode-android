@@ -166,6 +166,7 @@ fun CathodeApp(
                     onRescan = viewModel::rescan,
                     onPlay = { player.play(library.tracks, it) },
                     onEdit = viewModel::updateMetadata,
+                    onReset = viewModel::resetMetadata,
                     settings = settings,
                     store = settingsStore,
                 )
@@ -173,6 +174,7 @@ fun CathodeApp(
                     tracks = library.tracks,
                     onPlay = { player.play(library.tracks, it) },
                     onEdit = viewModel::updateMetadata,
+                    onReset = viewModel::resetMetadata,
                 )
                 CathodeTab.Library -> LibraryScreen(
                     state = library,
@@ -180,6 +182,9 @@ fun CathodeApp(
                     onRescan = viewModel::rescan,
                     onPlay = { player.play(library.tracks, it) },
                     onEdit = viewModel::updateMetadata,
+                    onReset = viewModel::resetMetadata,
+                    settings = settings,
+                    store = settingsStore,
                 )
                 CathodeTab.Acquire -> AcquireScreen()
                 CathodeTab.Settings -> SettingsScreen(settings = settings, store = settingsStore)

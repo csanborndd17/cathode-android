@@ -16,6 +16,7 @@ data class AudioTrack(
     val relativePath: String?,
     val displayName: String,
     val fileSize: Long,
+    val dateAddedSeconds: Long,
     val tags: String = "",
     val customArtworkUri: String? = null,
 ) {

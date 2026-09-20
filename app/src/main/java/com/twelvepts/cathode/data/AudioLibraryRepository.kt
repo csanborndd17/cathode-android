@@ -25,6 +25,7 @@ class AudioLibraryRepository(private val context: Context) {
             MediaStore.Audio.Media.MIME_TYPE,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_ADDED,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             projection += MediaStore.Audio.Media.RELATIVE_PATH
@@ -50,6 +51,7 @@ class AudioLibraryRepository(private val context: Context) {
             val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
             val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val dateAddedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
             } else -1
@@ -78,6 +80,7 @@ class AudioLibraryRepository(private val context: Context) {
                     relativePath = relativePath,
                     displayName = displayName,
                     fileSize = fileSize,
+                    dateAddedSeconds = cursor.getLong(dateAddedColumn),
                     tags = metadata.getString("$key.tags", metadata.getString("$legacyKey.tags", "")).orEmpty(),
                     customArtworkUri = metadata.getString("$key.artwork", metadata.getString("$legacyKey.artwork", null)),
                 )
@@ -119,6 +122,15 @@ class AudioLibraryRepository(private val context: Context) {
             tags = cleanTags,
             customArtworkUri = customArtworkUri?.takeIf(String::isNotBlank),
         )
+    }
+
+    fun clearMetadata(track: AudioTrack) {
+        metadata.edit().apply {
+            listOf("title", "artist", "album", "tags", "artwork").forEach { field ->
+                remove("${track.stableKey}.$field")
+                remove("${track.id}.$field")
+            }
+        }.apply()
     }
 
     private fun String?.orUnknown(fallback: String): String =
