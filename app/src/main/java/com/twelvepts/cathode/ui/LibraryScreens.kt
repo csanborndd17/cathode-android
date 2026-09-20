@@ -1,7 +1,6 @@
 package com.twelvepts.cathode.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,13 +12,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,8 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,26 +45,48 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.model.AudioTrack
 
+typealias MetadataEditor = (AudioTrack, String, String, String, String) -> Unit
+
 @Composable
-fun HomeScreen(state: LibraryState, onRescan: () -> Unit, onPlay: (AudioTrack) -> Unit) {
+fun HomeScreen(
+    state: LibraryState,
+    onRescan: () -> Unit,
+    onPlay: (AudioTrack) -> Unit,
+    onEdit: MetadataEditor,
+) {
+    val albumCount = remember(state.tracks) { state.tracks.map(AudioTrack::album).distinct().size }
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { CathodeHeader("AUDIO TERMINAL", "LOCAL SYSTEM // ${state.tracks.size} TRACKS") }
         item {
-            StatusPanel(
-                monochromeCount = state.tracks.count(AudioTrack::isMonochromeDownload),
-                totalCount = state.tracks.size,
-                loading = state.loading,
-                onRescan = onRescan,
-            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text("Your music", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("${state.tracks.size} songs · $albumCount albums · available offline", color = CathodeMuted)
+                }
+                IconButton(onClick = onRescan, enabled = !state.loading) {
+                    Icon(Icons.Default.Refresh, "Rescan library", tint = CathodeCyan)
+                }
+            }
         }
-        item { SectionLabel("RECENT SIGNALS") }
+        if (state.tracks.isNotEmpty()) {
+            item {
+                Button(onClick = { onPlay(state.tracks.first()) }) {
+                    Icon(Icons.Default.PlayArrow, null)
+                    Text("Play all", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+        item { SectionLabel("Recently added") }
         if (state.tracks.isEmpty()) {
             item { EmptyLibrary(state.permissionGranted) }
         } else {
-            items(state.tracks.takeLast(12).reversed(), key = AudioTrack::id) { TrackRow(it, onPlay) }
+            items(state.tracks.take(12), key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
         }
         item { Spacer(Modifier.height(16.dp)) }
     }
@@ -75,10 +98,18 @@ fun LibraryScreen(
     requestPermission: () -> Unit,
     onRescan: () -> Unit,
     onPlay: (AudioTrack) -> Unit,
+    onEdit: MetadataEditor,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        CathodeHeader("LIBRARY", "INDEXED LOCAL AUDIO")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text("Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("All local audio", color = CathodeMuted)
+            }
             IconButton(onClick = onRescan, enabled = !state.loading) {
                 Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan)
             }
@@ -88,10 +119,10 @@ fun LibraryScreen(
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = CathodeCyan)
             }
-            state.error != null -> TerminalMessage("SCAN ERROR", state.error, CathodeError)
+            state.error != null -> MessagePanel("Library scan failed", state.error, CathodeError)
             state.tracks.isEmpty() -> EmptyLibrary(true)
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(state.tracks, key = AudioTrack::id) { TrackRow(it, onPlay) }
+            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(state.tracks, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
@@ -99,22 +130,33 @@ fun LibraryScreen(
 }
 
 @Composable
-fun SearchScreen(tracks: List<AudioTrack>, onPlay: (AudioTrack) -> Unit) {
+fun SearchScreen(
+    tracks: List<AudioTrack>,
+    onPlay: (AudioTrack) -> Unit,
+    onEdit: MetadataEditor,
+) {
     var query by remember { mutableStateOf("") }
     val results = remember(query, tracks) {
         if (query.isBlank()) emptyList() else tracks.filter {
-            it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true)
+            it.title.contains(query, true) ||
+                it.artist.contains(query, true) ||
+                it.album.contains(query, true) ||
+                it.tags.contains(query, true)
         }.take(100)
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        CathodeHeader("SEARCH", "QUERY LOCAL INDEX")
+        Column(Modifier.padding(top = 24.dp, bottom = 14.dp)) {
+            Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text("Search", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text("Titles, artists, albums, and your tags", color = CathodeMuted)
+        }
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Search, null) },
-            placeholder = { Text("TRACK / ARTIST / ALBUM") },
+            placeholder = { Text("Search your library") },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = CathodeCyan,
                 focusedTextColor = CathodeText,
@@ -124,20 +166,19 @@ fun SearchScreen(tracks: List<AudioTrack>, onPlay: (AudioTrack) -> Unit) {
             ),
         )
         Spacer(Modifier.height(12.dp))
-        if (query.isBlank()) {
-            TerminalMessage("AWAITING INPUT", "> enter search parameters", CathodeMuted)
-        } else if (results.isEmpty()) {
-            TerminalMessage("NO SIGNAL", "> no local matches", CathodeMuted)
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(results, key = AudioTrack::id) { TrackRow(it, onPlay) }
+        when {
+            query.isBlank() -> MessagePanel("Search your music", "Custom tags are searchable too.", CathodeMuted)
+            results.isEmpty() -> MessagePanel("No results", "Try another title, artist, album, or tag.", CathodeMuted)
+            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(results, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
             }
         }
     }
 }
 
 @Composable
-private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit) {
+private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor) {
+    var editing by remember(track.id) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -145,73 +186,102 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit) {
         AsyncImage(
             model = track.artworkUri,
             contentDescription = "${track.album} cover",
-            modifier = Modifier.size(52.dp).background(CathodePanel).border(1.dp, CathodeDim),
+            modifier = Modifier.size(52.dp).background(CathodePanel),
             contentScale = ContentScale.Crop,
         )
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${track.artist} // ${track.album}",
+                "${track.artist} · ${track.album}",
                 color = CathodeMuted,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (track.tags.isNotEmpty()) {
+                Text(track.tags, color = CathodeDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
         }
         Text(formatDuration(track.durationMs), color = CathodeDim, style = MaterialTheme.typography.labelMedium)
+        IconButton(onClick = { editing = true }) {
+            Icon(Icons.Default.Edit, "Edit metadata", tint = CathodeMuted)
+        }
+    }
+    if (editing) {
+        MetadataDialog(
+            track = track,
+            onDismiss = { editing = false },
+            onSave = { title, artist, album, tags ->
+                onEdit(track, title, artist, album, tags)
+                editing = false
+            },
+        )
     }
 }
 
 @Composable
-private fun StatusPanel(monochromeCount: Int, totalCount: Int, loading: Boolean, onRescan: () -> Unit) {
-    Column(Modifier.fillMaxWidth().border(1.dp, CathodeDim).background(CathodePanel).padding(16.dp)) {
-        Text("SYSTEM STATUS", color = CathodeCyan, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text("> MEDIASTORE: ${if (loading) "SCANNING" else "ONLINE"}")
-        Text("> LOCAL TRACKS: $totalCount")
-        Text("> MONOCHROME: $monochromeCount")
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = onRescan, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = CathodeCyan)) {
-            Text(if (loading) "SCANNING..." else "RESCAN STORAGE", color = CathodeBlack)
-        }
-    }
+private fun MetadataDialog(
+    track: AudioTrack,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String) -> Unit,
+) {
+    var title by remember(track.id) { mutableStateOf(track.title) }
+    var artist by remember(track.id) { mutableStateOf(track.artist) }
+    var album by remember(track.id) { mutableStateOf(track.album) }
+    var tags by remember(track.id) { mutableStateOf(track.tags) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit track details") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
+                OutlinedTextField(artist, { artist = it }, label = { Text("Artist") }, singleLine = true)
+                OutlinedTextField(album, { album = it }, label = { Text("Album") }, singleLine = true)
+                OutlinedTextField(
+                    tags,
+                    { tags = it },
+                    label = { Text("Search tags") },
+                    supportingText = { Text("Separate tags with commas, e.g. twenty one pilots, demo") },
+                )
+                Text(
+                    "Changes are stored in Cathode and do not rewrite the original audio file.",
+                    color = CathodeMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
 private fun PermissionPanel(onRequest: () -> Unit) {
-    Column(Modifier.fillMaxWidth().border(1.dp, CathodeError).padding(18.dp)) {
-        Text("STORAGE LINK OFFLINE", color = CathodeError, fontWeight = FontWeight.Bold)
-        Text("Cathode needs audio access to index and play local files.", modifier = Modifier.padding(vertical = 12.dp))
-        Button(onClick = onRequest) { Text("GRANT AUDIO ACCESS") }
+    Column(Modifier.fillMaxWidth().background(CathodePanel).padding(18.dp)) {
+        Text("Audio access needed", color = CathodeError, fontWeight = FontWeight.Bold)
+        Text("Allow Cathode to index and play music stored on this phone.", modifier = Modifier.padding(vertical = 12.dp))
+        Button(onClick = onRequest) { Text("Allow audio access") }
     }
 }
 
 @Composable
 private fun EmptyLibrary(hasPermission: Boolean) {
-    TerminalMessage(
-        if (hasPermission) "NO AUDIO INDEXED" else "ACCESS REQUIRED",
-        if (hasPermission) "> Download audio in ACQUIRE, then run RESCAN STORAGE.\n> Expected path: Downloads/Monochrome" else "> grant audio access to initialize library",
+    MessagePanel(
+        if (hasPermission) "No music found" else "Audio access needed",
+        if (hasPermission) "Download or copy music to this phone, then rescan the library." else "Grant audio access to load your local music.",
         CathodeMuted,
     )
 }
 
 @Composable
-private fun CathodeHeader(title: String, subtitle: String) {
-    Column(Modifier.padding(top = 22.dp, bottom = 14.dp)) {
-        Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
 private fun SectionLabel(label: String) {
-    Text("[ $label ]", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+    Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
 }
 
 @Composable
-private fun TerminalMessage(title: String, body: String, color: Color) {
-    Column(Modifier.fillMaxWidth().border(1.dp, CathodeDim).padding(18.dp)) {
+private fun MessagePanel(title: String, body: String, color: androidx.compose.ui.graphics.Color) {
+    Column(Modifier.fillMaxWidth().background(CathodePanel).padding(18.dp)) {
         Text(title, color = color, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(body, color = CathodeMuted)
