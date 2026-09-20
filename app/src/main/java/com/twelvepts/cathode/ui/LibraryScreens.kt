@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,45 +60,48 @@ fun HomeScreen(
     onRescan: () -> Unit,
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
+    settings: CathodeSettings,
+    store: CathodeSettingsStore,
 ) {
     val albumCount = remember(state.tracks) { state.tracks.map(AudioTrack::album).distinct().size }
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    val pinned = remember(state.tracks, settings.pinnedTrackIds) { state.tracks.filter { it.id in settings.pinnedTrackIds } }
+    fun togglePin(track: AudioTrack) = store.update {
+        it.copy(pinnedTrackIds = if (track.id in it.pinnedTrackIds) it.pinnedTrackIds - track.id else it.pinnedTrackIds + track.id)
+    }
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text("Your music", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("${state.tracks.size} songs · $albumCount albums · available offline", color = CathodeMuted)
                 }
-                IconButton(onClick = onRescan, enabled = !state.loading) {
-                    Icon(Icons.Default.Refresh, "Rescan library", tint = CathodeCyan)
-                }
+                IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan library", tint = CathodeCyan) }
             }
         }
-        if (state.tracks.isNotEmpty()) {
-            item {
-                Button(onClick = { onPlay(state.tracks.first()) }) {
-                    Icon(Icons.Default.PlayArrow, null)
-                    Text("Play all", modifier = Modifier.padding(start = 8.dp))
-                }
+        if (state.tracks.isNotEmpty()) item {
+            Button(onClick = { onPlay(state.tracks.first()) }) {
+                Icon(Icons.Default.PlayArrow, null); Text("Play all", modifier = Modifier.padding(start = 8.dp))
             }
         }
-        item { SectionLabel("Recently added") }
-        if (state.tracks.isEmpty()) {
-            item { EmptyLibrary(state.permissionGranted) }
-        } else {
-            items(state.tracks.take(12), key = AudioTrack::id) { TrackRow(it, onPlay, onEdit) }
+        if (state.tracks.isEmpty()) item { EmptyLibrary(state.permissionGranted) }
+        settings.homeSections.forEach { section ->
+            when (section) {
+                "Pinned" -> if (pinned.isNotEmpty()) {
+                    item { SectionLabel("Pinned") }
+                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,true,{togglePin(it)}) }
+                }
+                "Recently added" -> if (state.tracks.isNotEmpty()) {
+                    item { SectionLabel("Recently added") }
+                    items(state.tracks.take(12), key = { "recent-${it.id}" }) {
+                        TrackRow(it,onPlay,onEdit,it.id in settings.pinnedTrackIds,{togglePin(it)})
+                    }
+                }
+            }
         }
         item { Spacer(Modifier.height(16.dp)) }
     }
 }
-
 @Composable
 fun LibraryScreen(
     state: LibraryState,
@@ -182,7 +187,7 @@ fun SearchScreen(
 }
 
 @Composable
-private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor) {
+private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, pinned: Boolean = false, onPin: (() -> Unit)? = null) {
     var editing by remember(track.id) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp),
@@ -208,6 +213,9 @@ private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: Me
             }
         }
         Text(formatDuration(track.durationMs), color = CathodeDim, style = MaterialTheme.typography.labelMedium)
+        if (onPin != null) IconButton(onClick = onPin) {
+            Icon(if (pinned) Icons.Default.Star else Icons.Outlined.StarOutline, if (pinned) "Unpin" else "Pin", tint = if (pinned) CathodeCyan else CathodeMuted)
+        }
         IconButton(onClick = { editing = true }) {
             Icon(Icons.Default.Edit, "Edit metadata", tint = CathodeMuted)
         }

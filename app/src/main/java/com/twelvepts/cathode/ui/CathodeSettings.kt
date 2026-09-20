@@ -6,11 +6,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemePreset(val label: String) {
-    CYAN("Cathode Cyan"),
-    AMBER("Amber CRT"),
-    GREEN("Phosphor Green"),
-    ULTRAVIOLET("Ultraviolet"),
-    ICE("Ice White"),
+    CYAN("Cathode Cyan"), AMBER("Amber CRT"), GREEN("Phosphor Green"),
+    ULTRAVIOLET("Ultraviolet"), ICE("Ice White"),
+}
+enum class NavigationStyle(val label: String) {
+    LABELED("Icons + labels"), ICONS_ONLY("Icons only"), COMPACT("Compact"),
 }
 
 data class CathodeSettings(
@@ -24,7 +24,18 @@ data class CathodeSettings(
     val animations: Boolean = true,
     val startupAnimation: Boolean = true,
     val lastTab: String = "Home",
-)
+    val startupDestination: String = "Remember",
+    val navigationStyle: NavigationStyle = NavigationStyle.LABELED,
+    val tabOrder: List<String> = defaultTabs,
+    val hiddenTabs: Set<String> = emptySet(),
+    val homeSections: List<String> = defaultHomeSections,
+    val pinnedTrackIds: Set<Long> = emptySet(),
+) {
+    companion object {
+        val defaultTabs = listOf("Home", "Search", "Library", "Acquire", "Settings")
+        val defaultHomeSections = listOf("Pinned", "Recently added")
+    }
+}
 
 class CathodeSettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("cathode_settings", Context.MODE_PRIVATE)
@@ -36,9 +47,7 @@ class CathodeSettingsStore(context: Context) {
         _state.value = next
         preferences.edit()
             .putString("theme", next.themePreset.name)
-            .apply {
-                if (next.customAccentArgb == null) remove("accent") else putInt("accent", next.customAccentArgb)
-            }
+            .apply { if (next.customAccentArgb == null) remove("accent") else putInt("accent", next.customAccentArgb) }
             .putBoolean("amoled", next.amoled)
             .putBoolean("compact", next.compact)
             .putBoolean("rounded", next.rounded)
@@ -47,21 +56,38 @@ class CathodeSettingsStore(context: Context) {
             .putBoolean("animations", next.animations)
             .putBoolean("startup", next.startupAnimation)
             .putString("last_tab", next.lastTab)
+            .putString("startup_destination", next.startupDestination)
+            .putString("navigation_style", next.navigationStyle.name)
+            .putString("tab_order", next.tabOrder.joinToString(","))
+            .putStringSet("hidden_tabs", next.hiddenTabs)
+            .putString("home_sections", next.homeSections.joinToString(","))
+            .putStringSet("pinned_tracks", next.pinnedTrackIds.map(Long::toString).toSet())
             .apply()
     }
 
-    private fun load() = CathodeSettings(
-        themePreset = runCatching {
-            ThemePreset.valueOf(preferences.getString("theme", ThemePreset.CYAN.name)!!)
-        }.getOrDefault(ThemePreset.CYAN),
-        customAccentArgb = if (preferences.contains("accent")) preferences.getInt("accent", 0) else null,
-        amoled = preferences.getBoolean("amoled", false),
-        compact = preferences.getBoolean("compact", false),
-        rounded = preferences.getBoolean("rounded", true),
-        monospace = preferences.getBoolean("monospace", false),
-        glowStrength = preferences.getFloat("glow", .35f),
-        animations = preferences.getBoolean("animations", true),
-        startupAnimation = preferences.getBoolean("startup", true),
-        lastTab = preferences.getString("last_tab", "Home") ?: "Home",
-    )
+    private fun load(): CathodeSettings {
+        val tabOrder = preferences.getString("tab_order", null)?.split(",")?.filter { it in CathodeSettings.defaultTabs }
+            .orEmpty().let { saved -> saved + CathodeSettings.defaultTabs.filterNot(saved::contains) }
+        val homeSections = preferences.getString("home_sections", null)?.split(",")
+            ?.filter { it in CathodeSettings.defaultHomeSections }.orEmpty()
+            .let { saved -> saved + CathodeSettings.defaultHomeSections.filterNot(saved::contains) }
+        return CathodeSettings(
+            themePreset = runCatching { ThemePreset.valueOf(preferences.getString("theme", ThemePreset.CYAN.name)!!) }.getOrDefault(ThemePreset.CYAN),
+            customAccentArgb = if (preferences.contains("accent")) preferences.getInt("accent", 0) else null,
+            amoled = preferences.getBoolean("amoled", false),
+            compact = preferences.getBoolean("compact", false),
+            rounded = preferences.getBoolean("rounded", true),
+            monospace = preferences.getBoolean("monospace", false),
+            glowStrength = preferences.getFloat("glow", .35f),
+            animations = preferences.getBoolean("animations", true),
+            startupAnimation = preferences.getBoolean("startup", true),
+            lastTab = preferences.getString("last_tab", "Home") ?: "Home",
+            startupDestination = preferences.getString("startup_destination", "Remember") ?: "Remember",
+            navigationStyle = runCatching { NavigationStyle.valueOf(preferences.getString("navigation_style", NavigationStyle.LABELED.name)!!) }.getOrDefault(NavigationStyle.LABELED),
+            tabOrder = tabOrder,
+            hiddenTabs = preferences.getStringSet("hidden_tabs", emptySet()).orEmpty(),
+            homeSections = homeSections,
+            pinnedTrackIds = preferences.getStringSet("pinned_tracks", emptySet()).orEmpty().mapNotNull(String::toLongOrNull).toSet(),
+        )
+    }
 }

@@ -80,15 +80,17 @@ fun CathodeApp(
     settingsStore: CathodeSettingsStore,
 ) {
     var tab by remember {
-        mutableStateOf(
-            runCatching { CathodeTab.valueOf(settings.lastTab) }.getOrDefault(CathodeTab.Home),
-        )
+        val target = if (settings.startupDestination == "Remember") settings.lastTab else settings.startupDestination
+        mutableStateOf(runCatching { CathodeTab.valueOf(target) }.getOrDefault(CathodeTab.Home))
     }
     var showPlayer by remember { mutableStateOf(false) }
     var showStartup by remember { mutableStateOf(settings.startupAnimation) }
     var logoRevealed by remember { mutableStateOf(false) }
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
+    val visibleTabs = settings.tabOrder.mapNotNull { name -> CathodeTab.entries.firstOrNull { it.name == name } }
+        .filterNot { it.name in settings.hiddenTabs }
+        .ifEmpty { listOf(CathodeTab.Home, CathodeTab.Settings) }
 
     fun selectTab(next: CathodeTab) {
         tab = next
@@ -133,13 +135,17 @@ fun CathodeApp(
                         compact = settings.compact,
                     )
                 }
-                NavigationBar(containerColor = CathodePanel) {
-                    CathodeTab.entries.forEach { item ->
+                NavigationBar(
+                    containerColor = CathodePanel,
+                    modifier = Modifier.height(if (settings.navigationStyle == NavigationStyle.COMPACT) 64.dp else 80.dp),
+                ) {
+                    visibleTabs.forEach { item ->
                         NavigationBarItem(
                             selected = item == tab,
                             onClick = { selectTab(item) },
                             icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
+                            label = if (settings.navigationStyle == NavigationStyle.LABELED) ({ Text(item.label) }) else null,
+                            alwaysShowLabel = settings.navigationStyle == NavigationStyle.LABELED,
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = CathodeBlack,
                                 selectedTextColor = CathodeCyan,
@@ -160,6 +166,8 @@ fun CathodeApp(
                     onRescan = viewModel::rescan,
                     onPlay = { player.play(library.tracks, it) },
                     onEdit = viewModel::updateMetadata,
+                    settings = settings,
+                    store = settingsStore,
                 )
                 CathodeTab.Search -> SearchScreen(
                     tracks = library.tracks,
