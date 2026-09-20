@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -41,6 +42,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -80,6 +84,7 @@ fun HomeScreen(
     onReset: MetadataResetter,
     onToggleFavorite: FavoriteToggler,
     onAddToPlaylist: PlaylistAdder,
+    onProfile: () -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
@@ -91,7 +96,8 @@ fun HomeScreen(
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                AsyncImage(settings.profileImageUri, "Open profile", Modifier.size(44.dp).clip(CircleShape).background(CathodeDim).clickable(onClick = onProfile), contentScale = ContentScale.Crop)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text("Your music", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("${state.tracks.size} songs · $albumCount albums · available offline", color = CathodeMuted)
@@ -150,13 +156,24 @@ fun LibraryScreen(
     onDeletePlaylist: (Long) -> Unit,
     onAddToPlaylist: PlaylistAdder,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
+    onProfile: () -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
     var selectedGroup by remember(settings.libraryCategory) { mutableStateOf<String?>(null) }
     var creatingPlaylist by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
-    val sorted = remember(state.tracks, settings.librarySort) { sortTracks(state.tracks, settings.librarySort) }
+    var categoryMenu by remember { mutableStateOf(false) }
+    var sortMenu by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
+    var libraryQuery by remember { mutableStateOf("") }
+    val filteredTracks = remember(state.tracks, libraryQuery) {
+        if (libraryQuery.isBlank()) state.tracks else state.tracks.filter {
+            it.title.contains(libraryQuery, true) || it.artist.contains(libraryQuery, true) ||
+                it.album.contains(libraryQuery, true) || it.tags.contains(libraryQuery, true)
+        }
+    }
+    val sorted = remember(filteredTracks, settings.librarySort) { sortTracks(filteredTracks, settings.librarySort) }
     val favorites = sorted.filter { it.stableKey in state.favoriteKeys }
     val groups = remember(sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
         when (settings.libraryCategory) {
@@ -182,8 +199,10 @@ fun LibraryScreen(
         Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (detail != null) IconButton(onClick = { selectedGroup = null }) {
                 Icon(Icons.Default.ArrowBack, "Back to library", tint = CathodeCyan)
+            } else {
+                AsyncImage(settings.profileImageUri, "Open profile", Modifier.size(44.dp).clip(CircleShape).background(CathodeDim).clickable(onClick = onProfile), contentScale = ContentScale.Crop)
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
                 Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 Text(detail?.title ?: "Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(detail?.subtitle ?: "${state.tracks.size} local tracks", color = CathodeMuted)
@@ -196,8 +215,14 @@ fun LibraryScreen(
                     Icon(Icons.Default.Delete, "Delete playlist", tint = CathodeError)
                 }
             }
+            IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search library", tint = CathodeCyan) }
             IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan) }
         }
+        if (searching && detail == null) OutlinedTextField(
+            value = libraryQuery, onValueChange = { libraryQuery = it }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            placeholder = { Text("Search songs, artists, albums, and tags") }, singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+        )
         when {
             !state.permissionGranted -> PermissionPanel(requestPermission)
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CathodeCyan) }
@@ -216,37 +241,33 @@ fun LibraryScreen(
                 item { Spacer(Modifier.height(12.dp)) }
             }
             else -> {
-                Column {
-                    LibraryCategory.entries.chunked(3).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            row.forEach { category ->
-                                FilterChip(
-                                    selected = settings.libraryCategory == category,
-                                    onClick = { store.update { it.copy(libraryCategory = category) } },
-                                    label = { Text(category.label) },
-                                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        Button(onClick = { categoryMenu = true }) { Text("${settings.libraryCategory.label} ▼") }
+                        DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
+                            LibraryCategory.entries.forEach { category ->
+                                DropdownMenuItem(text = { Text(category.label) }, onClick = {
+                                    store.update { it.copy(libraryCategory = category) }
+                                    categoryMenu = false
+                                })
                             }
                         }
                     }
-                }
-                if (settings.libraryCategory != LibraryCategory.PLAYLISTS) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        LibrarySort.entries.forEach { sort ->
-                            FilterChip(
-                                selected = settings.librarySort == sort,
-                                onClick = { store.update { it.copy(librarySort = sort) } },
-                                label = { Text(sort.label) },
-                            )
+                    if (settings.libraryCategory != LibraryCategory.PLAYLISTS) Box {
+                        TextButton(onClick = { sortMenu = true }) { Text("Sort: ${settings.librarySort.label}") }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            LibrarySort.entries.forEach { sort ->
+                                DropdownMenuItem(text = { Text(sort.label) }, onClick = {
+                                    store.update { it.copy(librarySort = sort) }
+                                    sortMenu = false
+                                })
+                            }
                         }
                     }
-                }
-                if (settings.libraryCategory !in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        FilterChip(
-                            selected = settings.libraryGrid,
-                            onClick = { store.update { it.copy(libraryGrid = !it.libraryGrid) } },
-                            label = { Text(if (settings.libraryGrid) "Grid" else "List") },
-                        )
+                    Spacer(Modifier.weight(1f))
+                    if (settings.libraryCategory !in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
+                        FilterChip(selected = settings.libraryGrid, onClick = { store.update { it.copy(libraryGrid = !it.libraryGrid) } },
+                            label = { Text(if (settings.libraryGrid) "Grid" else "List") })
                     }
                 }
                 val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else sorted

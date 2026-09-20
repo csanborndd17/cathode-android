@@ -41,10 +41,12 @@ data class CathodeSettings(
     val libraryCategory: LibraryCategory = LibraryCategory.SONGS,
     val librarySort: LibrarySort = LibrarySort.RECENT,
     val libraryGrid: Boolean = false,
+    val profileName: String = "Listener",
+    val profileImageUri: String? = null,
 ) {
     companion object {
-        val defaultTabs = listOf("Home", "Search", "Library", "Acquire", "Settings")
-        val defaultHomeSections = listOf("Pinned", "Recently played", "Most played", "Recently added")
+        val defaultTabs = listOf("Listen", "Library", "Discover")
+        val defaultHomeSections = listOf("Pinned", "Recently played", "Most played")
     }
 }
 
@@ -77,6 +79,8 @@ class CathodeSettingsStore(context: Context) {
             .putString("library_category", next.libraryCategory.name)
             .putString("library_sort", next.librarySort.name)
             .putBoolean("library_grid", next.libraryGrid)
+            .putString("profile_name", next.profileName)
+            .apply { if (next.profileImageUri == null) remove("profile_image") else putString("profile_image", next.profileImageUri) }
             .apply()
     }
 
@@ -140,6 +144,8 @@ class CathodeSettingsStore(context: Context) {
             libraryCategory = runCatching { LibraryCategory.valueOf(preferences.getString("library_category", LibraryCategory.SONGS.name)!!) }.getOrDefault(LibraryCategory.SONGS),
             librarySort = runCatching { LibrarySort.valueOf(preferences.getString("library_sort", LibrarySort.RECENT.name)!!) }.getOrDefault(LibrarySort.RECENT),
             libraryGrid = preferences.getBoolean("library_grid", false),
+            profileName = preferences.getString("profile_name", "Listener") ?: "Listener",
+            profileImageUri = preferences.getString("profile_image", null),
         )
     }
 }

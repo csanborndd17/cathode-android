@@ -2,47 +2,21 @@ package com.twelvepts.cathode.ui
 
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -62,15 +36,15 @@ import com.twelvepts.cathode.CathodeViewModel
 import com.twelvepts.cathode.R
 import com.twelvepts.cathode.playback.PlayerConnection
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class CathodeTab(val label: String, val icon: ImageVector) {
-    Home("HOME", Icons.Default.Home),
-    Search("SEARCH", Icons.Default.Search),
+    Listen("LISTEN", Icons.Default.Home),
     Library("LIBRARY", Icons.Default.LibraryMusic),
-    Acquire("ACQUIRE", Icons.Default.CloudDownload),
-    Settings("SETTINGS", Icons.Default.Settings),
+    Discover("DISCOVER", Icons.Default.CloudDownload),
 }
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun CathodeApp(
     viewModel: CathodeViewModel,
@@ -79,29 +53,39 @@ fun CathodeApp(
     settings: CathodeSettings,
     settingsStore: CathodeSettingsStore,
 ) {
+    fun resolveTab(name: String): CathodeTab = when (name) {
+        "Home" -> CathodeTab.Listen
+        "Acquire" -> CathodeTab.Discover
+        else -> runCatching { CathodeTab.valueOf(name) }.getOrDefault(CathodeTab.Listen)
+    }
     var tab by remember {
         val target = if (settings.startupDestination == "Remember") settings.lastTab else settings.startupDestination
-        mutableStateOf(runCatching { CathodeTab.valueOf(target) }.getOrDefault(CathodeTab.Home))
+        mutableStateOf(resolveTab(target))
     }
+    var previousTab by remember { mutableStateOf(tab) }
     var showPlayer by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showTransmission by remember { mutableStateOf(false) }
     var showStartup by remember { mutableStateOf(settings.startupAnimation) }
     var logoRevealed by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
+
     fun playTrack(track: com.twelvepts.cathode.model.AudioTrack) {
         viewModel.recordPlay(track)
         player.play(library.tracks, track)
     }
-    val visibleTabs = settings.tabOrder.mapNotNull { name -> CathodeTab.entries.firstOrNull { it.name == name } }
-        .filterNot { it.name in settings.hiddenTabs }
-        .ifEmpty { listOf(CathodeTab.Home, CathodeTab.Settings) }
-
     fun selectTab(next: CathodeTab) {
+        previousTab = tab
         tab = next
         settingsStore.update { it.copy(lastTab = next.name) }
     }
 
-    BackHandler(enabled = !showPlayer && tab != CathodeTab.Home) { selectTab(CathodeTab.Home) }
+    BackHandler(enabled = !showPlayer && !showSettings && !showTransmission && tab != CathodeTab.Listen) {
+        selectTab(CathodeTab.Listen)
+    }
 
     LaunchedEffect(settings.startupAnimation) {
         if (settings.startupAnimation) {
@@ -109,11 +93,8 @@ fun CathodeApp(
             logoRevealed = true
             delay(1_250)
             showStartup = false
-        } else {
-            showStartup = false
-        }
+        } else showStartup = false
     }
-
     LaunchedEffect(playback.connected, playback.isPlaying) {
         while (playback.connected) {
             player.refreshPosition()
@@ -121,13 +102,25 @@ fun CathodeApp(
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = CathodeBlack,
-        bottomBar = {
-            Column(Modifier.navigationBarsPadding()) {
-                if (playback.title.isNotEmpty()) {
-                    MiniPlayer(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ProfileDrawerContent(
+                settings = settings,
+                store = settingsStore,
+                library = library,
+                onSettings = { showSettings = true },
+                onTransmission = { showTransmission = true },
+                onClose = { scope.launch { drawerState.close() } },
+            )
+        },
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            bottomBar = {
+                Column(Modifier.navigationBarsPadding()) {
+                    if (playback.title.isNotEmpty()) MiniPlayer(
                         title = playback.title,
                         artist = playback.artist,
                         artworkUri = playback.artworkUri,
@@ -138,78 +131,81 @@ fun CathodeApp(
                         onToggle = player::togglePlayPause,
                         compact = settings.compact,
                     )
-                }
-                NavigationBar(
-                    containerColor = CathodePanel,
-                    modifier = Modifier.height(if (settings.navigationStyle == NavigationStyle.COMPACT) 64.dp else 80.dp),
-                ) {
-                    visibleTabs.forEach { item ->
-                        NavigationBarItem(
-                            selected = item == tab,
-                            onClick = { selectTab(item) },
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = if (settings.navigationStyle == NavigationStyle.LABELED) ({ Text(item.label) }) else null,
-                            alwaysShowLabel = settings.navigationStyle == NavigationStyle.LABELED,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = CathodeBlack,
-                                selectedTextColor = CathodeCyan,
-                                indicatorColor = CathodeCyan,
-                                unselectedIconColor = CathodeMuted,
-                                unselectedTextColor = CathodeMuted,
-                            ),
-                        )
+                    NavigationBar(
+                        containerColor = CathodePanel,
+                        modifier = Modifier.height(if (settings.navigationStyle == NavigationStyle.COMPACT) 64.dp else 80.dp),
+                    ) {
+                        CathodeTab.entries.forEach { item ->
+                            NavigationBarItem(
+                                selected = item == tab,
+                                onClick = { selectTab(item) },
+                                icon = { Icon(item.icon, item.label) },
+                                label = if (settings.navigationStyle == NavigationStyle.LABELED) ({ Text(item.label) }) else null,
+                                alwaysShowLabel = settings.navigationStyle == NavigationStyle.LABELED,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = CathodeBlack,
+                                    selectedTextColor = CathodeCyan,
+                                    indicatorColor = CathodeCyan,
+                                    unselectedIconColor = CathodeMuted,
+                                    unselectedTextColor = CathodeMuted,
+                                ),
+                            )
+                        }
                     }
                 }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                CathodeTab.Home -> HomeScreen(
-                    state = library,
-                    onRescan = viewModel::rescan,
-                    onPlay = ::playTrack,
-                    onEdit = viewModel::updateMetadata,
-                    onReset = viewModel::resetMetadata,
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onAddToPlaylist = viewModel::addToPlaylist,
-                    settings = settings,
-                    store = settingsStore,
-                )
-                CathodeTab.Search -> SearchScreen(
-                    tracks = library.tracks,
-                    onPlay = ::playTrack,
-                    onEdit = viewModel::updateMetadata,
-                    onReset = viewModel::resetMetadata,
-                    favoriteKeys = library.favoriteKeys,
-                    playlists = library.playlists,
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onAddToPlaylist = viewModel::addToPlaylist,
-                )
-                CathodeTab.Library -> LibraryScreen(
-                    state = library,
-                    requestPermission = requestPermission,
-                    onRescan = viewModel::rescan,
-                    onPlay = ::playTrack,
-                    onEdit = viewModel::updateMetadata,
-                    onReset = viewModel::resetMetadata,
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onCreatePlaylist = viewModel::createPlaylist,
-                    onDeletePlaylist = viewModel::deletePlaylist,
-                    onAddToPlaylist = viewModel::addToPlaylist,
-                    onRemoveFromPlaylist = viewModel::removeFromPlaylist,
-                    settings = settings,
-                    store = settingsStore,
-                )
-                CathodeTab.Acquire -> AcquireScreen()
-                CathodeTab.Settings -> SettingsScreen(settings = settings, store = settingsStore)
+            },
+        ) { padding ->
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                CathodeBackdrop(settings.animations)
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = {
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        val duration = if (settings.animations) 260 else 0
+                        (slideInHorizontally(tween(duration)) { it / 8 * direction } + fadeIn(tween(duration)))
+                            .togetherWith(slideOutHorizontally(tween(duration)) { -it / 8 * direction } + fadeOut(tween(duration)))
+                    },
+                    label = "main-tabs",
+                ) { destination ->
+                    when (destination) {
+                        CathodeTab.Listen -> HomeScreen(
+                            state = library,
+                            onRescan = viewModel::rescan,
+                            onPlay = ::playTrack,
+                            onEdit = viewModel::updateMetadata,
+                            onReset = viewModel::resetMetadata,
+                            onToggleFavorite = viewModel::toggleFavorite,
+                            onAddToPlaylist = viewModel::addToPlaylist,
+                            onProfile = { scope.launch { drawerState.open() } },
+                            settings = settings,
+                            store = settingsStore,
+                        )
+                        CathodeTab.Library -> LibraryScreen(
+                            state = library,
+                            requestPermission = requestPermission,
+                            onRescan = viewModel::rescan,
+                            onPlay = ::playTrack,
+                            onEdit = viewModel::updateMetadata,
+                            onReset = viewModel::resetMetadata,
+                            onToggleFavorite = viewModel::toggleFavorite,
+                            onCreatePlaylist = viewModel::createPlaylist,
+                            onDeletePlaylist = viewModel::deletePlaylist,
+                            onAddToPlaylist = viewModel::addToPlaylist,
+                            onRemoveFromPlaylist = viewModel::removeFromPlaylist,
+                            onProfile = { scope.launch { drawerState.open() } },
+                            settings = settings,
+                            store = settingsStore,
+                        )
+                        CathodeTab.Discover -> AcquireScreen()
+                    }
+                }
             }
         }
     }
 
-    if (showPlayer) {
-        NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
-    }
+    if (showPlayer) NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
+    if (showSettings) SettingsScreen(settings, settingsStore, onClose = { showSettings = false })
+    if (showTransmission) TransmissionLogScreen(library, onClose = { showTransmission = false })
 
     AnimatedVisibility(visible = showStartup, exit = fadeOut(tween(if (settings.animations) 450 else 0))) {
         StartupReveal(logoRevealed)
@@ -229,48 +225,31 @@ private fun MiniPlayer(
     compact: Boolean,
 ) {
     val view = LocalView.current
-    Box(
-        Modifier.fillMaxWidth().height(if (compact) 54.dp else 64.dp).background(CathodePanel).clickable(onClick = onOpen),
-    ) {
+    Box(Modifier.fillMaxWidth().height(if (compact) 54.dp else 64.dp).background(CathodePanel).clickable(onClick = onOpen)) {
         AsyncImage(
             model = artworkUri,
             contentDescription = null,
             modifier = Modifier.fillMaxSize().blur(8.dp).alpha((.16f + CathodeGlowStrength * .34f).coerceIn(.16f, .5f)),
             contentScale = ContentScale.Crop,
         )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.horizontalGradient(
-                    listOf(CathodePanel.copy(alpha = .45f), CathodePanel.copy(alpha = .92f)),
-                ),
-            ),
-        )
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(CathodePanel.copy(alpha = .45f), CathodePanel.copy(alpha = .92f)))))
         LinearProgressIndicator(
             progress = { if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f },
             modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.TopCenter),
             color = CathodeCyan,
             trackColor = CathodeDim.copy(alpha = .35f),
         )
-        Row(
-            Modifier.fillMaxSize().padding(start = 16.dp, end = 8.dp, top = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 8.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
             Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    onToggle()
-                },
-            ) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = CathodeCyan,
-                )
+            IconButton(onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                onToggle()
+            }) {
+                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", tint = CathodeCyan)
             }
         }
     }
@@ -278,40 +257,17 @@ private fun MiniPlayer(
 
 @Composable
 private fun StartupReveal(revealed: Boolean) {
-    val scale by animateFloatAsState(
-        targetValue = if (revealed) 1f else .72f,
-        animationSpec = tween(700),
-        label = "startup-logo-scale",
-    )
-    val opacity by animateFloatAsState(
-        targetValue = if (revealed) 1f else 0f,
-        animationSpec = tween(500),
-        label = "startup-logo-opacity",
-    )
+    val scale by animateFloatAsState(if (revealed) 1f else .72f, tween(700), label = "startup-logo-scale")
+    val opacity by animateFloatAsState(if (revealed) 1f else 0f, tween(500), label = "startup-logo-opacity")
     Box(Modifier.fillMaxSize().background(CathodeBlack), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
-                painter = painterResource(R.drawable.ic_cathode),
-                contentDescription = "Cathode",
-                modifier = Modifier.size(156.dp).graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = opacity
-                },
+                painterResource(R.drawable.ic_cathode),
+                "Cathode",
+                Modifier.size(156.dp).graphicsLayer { scaleX = scale; scaleY = scale; alpha = opacity },
             )
-            Text(
-                "CATHODE",
-                color = CathodeCyan,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 14.dp).alpha(opacity),
-            )
-            Text(
-                "12PTS",
-                color = CathodeMuted,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(top = 4.dp).alpha(opacity),
-            )
+            Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp).alpha(opacity))
+            Text("12PTS", color = CathodeMuted, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp).alpha(opacity))
         }
     }
 }
