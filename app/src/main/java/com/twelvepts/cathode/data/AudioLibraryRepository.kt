@@ -69,6 +69,7 @@ class AudioLibraryRepository(private val context: Context) {
                     mimeType = cursor.getString(mimeColumn),
                     relativePath = if (pathColumn >= 0) cursor.getString(pathColumn) else null,
                     tags = metadata.getString("$key.tags", "").orEmpty(),
+                    customArtworkUri = metadata.getString("$key.artwork", null),
                 )
             }
         }
@@ -81,6 +82,7 @@ class AudioLibraryRepository(private val context: Context) {
         artist: String,
         album: String,
         tags: String,
+        customArtworkUri: String?,
     ): AudioTrack {
         val cleanTitle = title.trim().ifEmpty { track.title }
         val cleanArtist = artist.trim().ifEmpty { track.artist }
@@ -91,18 +93,21 @@ class AudioLibraryRepository(private val context: Context) {
             .distinctBy(String::lowercase)
             .joinToString(", ")
 
-        metadata.edit()
-            .putString("${track.id}.title", cleanTitle)
-            .putString("${track.id}.artist", cleanArtist)
-            .putString("${track.id}.album", cleanAlbum)
-            .putString("${track.id}.tags", cleanTags)
-            .apply()
+        metadata.edit().apply {
+            putString("${track.id}.title", cleanTitle)
+            putString("${track.id}.artist", cleanArtist)
+            putString("${track.id}.album", cleanAlbum)
+            putString("${track.id}.tags", cleanTags)
+            if (customArtworkUri.isNullOrBlank()) remove("${track.id}.artwork")
+            else putString("${track.id}.artwork", customArtworkUri)
+        }.apply()
 
         return track.copy(
             title = cleanTitle,
             artist = cleanArtist,
             album = cleanAlbum,
             tags = cleanTags,
+            customArtworkUri = customArtworkUri?.takeIf(String::isNotBlank),
         )
     }
 
