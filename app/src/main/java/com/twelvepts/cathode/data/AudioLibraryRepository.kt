@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class AudioLibraryRepository(private val context: Context) {
+    private val metadata = context.getSharedPreferences("cathode_metadata", Context.MODE_PRIVATE)
+
     suspend fun loadTracks(): List<AudioTrack> = withContext(Dispatchers.IO) {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = mutableListOf(
@@ -33,7 +35,7 @@ class AudioLibraryRepository(private val context: Context) {
             projection.toTypedArray(),
             selection,
             null,
-            "${MediaStore.Audio.Media.ARTIST} COLLATE NOCASE, ${MediaStore.Audio.Media.ALBUM} COLLATE NOCASE, ${MediaStore.Audio.Media.TRACK} ASC",
+            "${MediaStore.Audio.Media.DATE_ADDED} DESC",
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -50,22 +52,58 @@ class AudioLibraryRepository(private val context: Context) {
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
+                val key = id.toString()
+                val sourceTitle = cursor.getString(titleColumn).orUnknown("Unknown track")
+                val sourceArtist = cursor.getString(artistColumn).orUnknown("Unknown artist")
+                val sourceAlbum = cursor.getString(albumColumn).orUnknown("Unknown album")
                 result += AudioTrack(
                     id = id,
                     uri = ContentUris.withAppendedId(collection, id),
-                    title = cursor.getString(titleColumn).orUnknown("Unknown track"),
-                    artist = cursor.getString(artistColumn).orUnknown("Unknown artist"),
-                    album = cursor.getString(albumColumn).orUnknown("Unknown album"),
+                    title = metadata.getString("$key.title", sourceTitle).orUnknown(sourceTitle),
+                    artist = metadata.getString("$key.artist", sourceArtist).orUnknown(sourceArtist),
+                    album = metadata.getString("$key.album", sourceAlbum).orUnknown(sourceAlbum),
                     albumId = cursor.getLong(albumIdColumn),
                     durationMs = cursor.getLong(durationColumn),
                     trackNumber = cursor.getInt(trackColumn) % 1000,
                     year = cursor.getInt(yearColumn),
                     mimeType = cursor.getString(mimeColumn),
                     relativePath = if (pathColumn >= 0) cursor.getString(pathColumn) else null,
+                    tags = metadata.getString("$key.tags", "").orEmpty(),
                 )
             }
         }
         result
+    }
+
+    fun updateMetadata(
+        track: AudioTrack,
+        title: String,
+        artist: String,
+        album: String,
+        tags: String,
+    ): AudioTrack {
+        val cleanTitle = title.trim().ifEmpty { track.title }
+        val cleanArtist = artist.trim().ifEmpty { track.artist }
+        val cleanAlbum = album.trim().ifEmpty { track.album }
+        val cleanTags = tags.split(",")
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinctBy(String::lowercase)
+            .joinToString(", ")
+
+        metadata.edit()
+            .putString("${track.id}.title", cleanTitle)
+            .putString("${track.id}.artist", cleanArtist)
+            .putString("${track.id}.album", cleanAlbum)
+            .putString("${track.id}.tags", cleanTags)
+            .apply()
+
+        return track.copy(
+            title = cleanTitle,
+            artist = cleanArtist,
+            album = cleanAlbum,
+            tags = cleanTags,
+        )
     }
 
     private fun String?.orUnknown(fallback: String): String =
