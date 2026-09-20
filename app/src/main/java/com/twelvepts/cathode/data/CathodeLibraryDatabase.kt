@@ -85,7 +85,7 @@ class CathodeLibraryDatabase(context: Context) :
     fun recordPlay(trackKey: String) {
         writableDatabase.execSQL(
             "INSERT INTO history(track_key, play_count, last_played) VALUES(?,1,?) ON CONFLICT(track_key) DO UPDATE SET play_count=play_count+1,last_played=excluded.last_played",
-            arrayOf(trackKey, System.currentTimeMillis()),
+            arrayOf<Any>(trackKey, System.currentTimeMillis()),
         )
     }
 
