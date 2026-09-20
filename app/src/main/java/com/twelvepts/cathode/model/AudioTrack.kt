@@ -14,6 +14,7 @@ data class AudioTrack(
     val year: Int,
     val mimeType: String?,
     val relativePath: String?,
+    val tags: String = "",
 ) {
     val artworkUri: Uri
         get() = Uri.parse("content://media/external/audio/albumart/$albumId")
