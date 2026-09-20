@@ -25,8 +25,13 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -58,10 +63,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
+import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.model.AudioTrack
 
 typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
 typealias MetadataResetter = (AudioTrack) -> Unit
+typealias FavoriteToggler = (AudioTrack) -> Unit
+typealias PlaylistAdder = (Long, AudioTrack) -> Unit
 
 @Composable
 fun HomeScreen(
@@ -70,6 +78,8 @@ fun HomeScreen(
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
     onReset: MetadataResetter,
+    onToggleFavorite: FavoriteToggler,
+    onAddToPlaylist: PlaylistAdder,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
@@ -95,16 +105,31 @@ fun HomeScreen(
             }
         }
         if (state.tracks.isEmpty()) item { EmptyLibrary(state.permissionGranted) }
+        val recent = state.recentTrackKeys.mapNotNull { key -> state.tracks.firstOrNull { it.stableKey == key } }.take(12)
+        val mostPlayed = state.tracks.filter { (state.playCounts[it.stableKey] ?: 0) > 0 }
+            .sortedByDescending { state.playCounts[it.stableKey] ?: 0 }.take(12)
         settings.homeSections.filterNot(settings.hiddenHomeSections::contains).forEach { section ->
             when (section) {
                 "Pinned" -> if (pinned.isNotEmpty()) {
                     item { SectionLabel("Pinned") }
-                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,onReset,true,{togglePin(it)}) }
+                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,onReset,true,{togglePin(it)},it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) }) }
+                }
+                "Recently played" -> if (recent.isNotEmpty()) {
+                    item { SectionLabel("Recently played") }
+                    items(recent, key = { "played-${it.stableKey}" }) {
+                        TrackRow(it,onPlay,onEdit,onReset,false,null,it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
+                    }
+                }
+                "Most played" -> if (mostPlayed.isNotEmpty()) {
+                    item { SectionLabel("Most played") }
+                    items(mostPlayed, key = { "most-${it.stableKey}" }) {
+                        TrackRow(it,onPlay,onEdit,onReset,false,null,it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
+                    }
                 }
                 "Recently added" -> if (state.tracks.isNotEmpty()) {
                     item { SectionLabel("Recently added") }
                     items(state.tracks.take(12), key = { "recent-${it.id}" }) {
-                        TrackRow(it,onPlay,onEdit,onReset,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)})
+                        TrackRow(it,onPlay,onEdit,onReset,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)},it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
                     }
                 }
             }
@@ -120,23 +145,37 @@ fun LibraryScreen(
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
     onReset: MetadataResetter,
+    onToggleFavorite: FavoriteToggler,
+    onCreatePlaylist: (String) -> Unit,
+    onDeletePlaylist: (Long) -> Unit,
+    onAddToPlaylist: PlaylistAdder,
+    onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
     var selectedGroup by remember(settings.libraryCategory) { mutableStateOf<String?>(null) }
+    var creatingPlaylist by remember { mutableStateOf(false) }
+    var playlistName by remember { mutableStateOf("") }
     val sorted = remember(state.tracks, settings.librarySort) { sortTracks(state.tracks, settings.librarySort) }
-    val groups = remember(sorted, settings.libraryCategory) {
+    val favorites = sorted.filter { it.stableKey in state.favoriteKeys }
+    val groups = remember(sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
         when (settings.libraryCategory) {
-            LibraryCategory.SONGS -> emptyList()
+            LibraryCategory.SONGS, LibraryCategory.FAVORITES -> emptyList()
             LibraryCategory.ALBUMS -> sorted.groupBy { "${it.artist}\u0000${it.album}" }
                 .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, tracks.first().artist, tracks) }
             LibraryCategory.ARTISTS -> sorted.groupBy(AudioTrack::artist)
                 .map { (key, tracks) -> LibraryGroup(key, key, "${tracks.size} songs", tracks) }
             LibraryCategory.FOLDERS -> sorted.groupBy { it.relativePath ?: "Unknown folder" }
                 .map { (key, tracks) -> LibraryGroup(key, key.trimEnd('/').substringAfterLast('/'), "${tracks.size} songs", tracks) }
+            LibraryCategory.PLAYLISTS -> state.playlists.map { playlist ->
+                val keys = state.playlistTrackKeys[playlist.id].orEmpty()
+                val tracks = keys.mapNotNull { key -> sorted.firstOrNull { it.stableKey == key } }
+                LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks)
+            }
         }.sortedBy { it.title.lowercase() }
     }
     val detail = groups.firstOrNull { it.key == selectedGroup }
+    val detailPlaylistId = detail?.key?.removePrefix("playlist:")?.toLongOrNull()
     BackHandler(enabled = detail != null) { selectedGroup = null }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
@@ -149,9 +188,15 @@ fun LibraryScreen(
                 Text(detail?.title ?: "Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(detail?.subtitle ?: "${state.tracks.size} local tracks", color = CathodeMuted)
             }
-            IconButton(onClick = onRescan, enabled = !state.loading) {
-                Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan)
+            if (settings.libraryCategory == LibraryCategory.PLAYLISTS && detail == null) {
+                IconButton(onClick = { creatingPlaylist = true }) { Icon(Icons.Default.Add, "Create playlist", tint = CathodeCyan) }
             }
+            if (detailPlaylistId != null) {
+                IconButton(onClick = { onDeletePlaylist(detailPlaylistId); selectedGroup = null }) {
+                    Icon(Icons.Default.Delete, "Delete playlist", tint = CathodeError)
+                }
+            }
+            IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan) }
         }
         when {
             !state.permissionGranted -> PermissionPanel(requestPermission)
@@ -159,29 +204,43 @@ fun LibraryScreen(
             state.error != null -> MessagePanel("Library scan failed", state.error, CathodeError)
             state.tracks.isEmpty() -> EmptyLibrary(true)
             detail != null -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(detail.tracks, key = AudioTrack::stableKey) { TrackRow(it, onPlay, onEdit, onReset) }
+                items(detail.tracks, key = AudioTrack::stableKey) { track ->
+                    TrackRow(
+                        track,onPlay,onEdit,onReset,false,null,
+                        track.stableKey in state.favoriteKeys,{onToggleFavorite(track)},
+                        state.playlists,{ id -> onAddToPlaylist(id,track) },
+                        if (detailPlaylistId != null) ({ onRemoveFromPlaylist(detailPlaylistId, track) }) else null,
+                    )
+                }
+                if (detail.tracks.isEmpty()) item { MessagePanel("Empty playlist", "Add songs using the playlist button beside any track.", CathodeMuted) }
                 item { Spacer(Modifier.height(12.dp)) }
             }
             else -> {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    LibraryCategory.entries.forEach { category ->
-                        FilterChip(
-                            selected = settings.libraryCategory == category,
-                            onClick = { store.update { it.copy(libraryCategory = category) } },
-                            label = { Text(category.label) },
-                        )
+                Column {
+                    LibraryCategory.entries.chunked(3).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { category ->
+                                FilterChip(
+                                    selected = settings.libraryCategory == category,
+                                    onClick = { store.update { it.copy(libraryCategory = category) } },
+                                    label = { Text(category.label) },
+                                )
+                            }
+                        }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    LibrarySort.entries.forEach { sort ->
-                        FilterChip(
-                            selected = settings.librarySort == sort,
-                            onClick = { store.update { it.copy(librarySort = sort) } },
-                            label = { Text(sort.label) },
-                        )
+                if (settings.libraryCategory != LibraryCategory.PLAYLISTS) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LibrarySort.entries.forEach { sort ->
+                            FilterChip(
+                                selected = settings.librarySort == sort,
+                                onClick = { store.update { it.copy(librarySort = sort) } },
+                                label = { Text(sort.label) },
+                            )
+                        }
                     }
                 }
-                if (settings.libraryCategory != LibraryCategory.SONGS) {
+                if (settings.libraryCategory !in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         FilterChip(
                             selected = settings.libraryGrid,
@@ -190,20 +249,22 @@ fun LibraryScreen(
                         )
                     }
                 }
-                if (settings.libraryCategory == LibraryCategory.SONGS) {
-                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(sorted, key = AudioTrack::stableKey) { TrackRow(it, onPlay, onEdit, onReset) }
-                        item { Spacer(Modifier.height(12.dp)) }
+                val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else sorted
+                if (settings.libraryCategory in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
+                    if (directTracks.isEmpty()) MessagePanel("Nothing here yet", "Favorite songs with the star button.", CathodeMuted)
+                    else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(directTracks, key = AudioTrack::stableKey) { track ->
+                            TrackRow(track,onPlay,onEdit,onReset,false,null,track.stableKey in state.favoriteKeys,
+                                {onToggleFavorite(track)},state.playlists,{ id -> onAddToPlaylist(id,track) })
+                        }
                     }
+                } else if (groups.isEmpty()) {
+                    MessagePanel("No playlists", "Create a playlist with the plus button.", CathodeMuted)
                 } else if (settings.libraryGrid) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(150.dp),
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        gridItems(groups, key = LibraryGroup::key) { group -> LibraryGroupCard(group) { selectedGroup = group.key } }
-                    }
+                        columns = GridCells.Adaptive(150.dp), modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) { gridItems(groups, key = LibraryGroup::key) { group -> LibraryGroupCard(group) { selectedGroup = group.key } } }
                 } else {
                     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(groups, key = LibraryGroup::key) { group -> LibraryGroupRow(group) { selectedGroup = group.key } }
@@ -212,6 +273,17 @@ fun LibraryScreen(
             }
         }
     }
+
+    if (creatingPlaylist) AlertDialog(
+        onDismissRequest = { creatingPlaylist = false },
+        title = { Text("New playlist") },
+        text = { OutlinedTextField(playlistName, { playlistName = it }, label = { Text("Playlist name") }, singleLine = true) },
+        confirmButton = { TextButton(onClick = {
+            if (playlistName.isNotBlank()) onCreatePlaylist(playlistName)
+            playlistName = ""; creatingPlaylist = false
+        }) { Text("Create") } },
+        dismissButton = { TextButton(onClick = { creatingPlaylist = false }) { Text("Cancel") } },
+    )
 }
 
 private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
@@ -253,6 +325,10 @@ fun SearchScreen(
     onPlay: (AudioTrack) -> Unit,
     onEdit: MetadataEditor,
     onReset: MetadataResetter,
+    favoriteKeys: Set<String>,
+    playlists: List<PlaylistSummary>,
+    onToggleFavorite: FavoriteToggler,
+    onAddToPlaylist: PlaylistAdder,
 ) {
     var query by remember { mutableStateOf("") }
     val results = remember(query, tracks) {
@@ -289,57 +365,46 @@ fun SearchScreen(
             query.isBlank() -> MessagePanel("Search your music", "Custom tags are searchable too.", CathodeMuted)
             results.isEmpty() -> MessagePanel("No results", "Try another title, artist, album, or tag.", CathodeMuted)
             else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(results, key = AudioTrack::id) { TrackRow(it, onPlay, onEdit, onReset) }
+                items(results, key = AudioTrack::stableKey) { track -> TrackRow(track,onPlay,onEdit,onReset,false,null,track.stableKey in favoriteKeys,{onToggleFavorite(track)},playlists,{ id -> onAddToPlaylist(id,track) }) }
             }
         }
     }
 }
 
 @Composable
-private fun TrackRow(track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, onReset: MetadataResetter, pinned: Boolean = false, onPin: (() -> Unit)? = null) {
-    var editing by remember(track.id) { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AsyncImage(
-            model = track.artworkUri,
-            contentDescription = "${track.album} cover",
-            modifier = Modifier.size(52.dp).background(CathodePanel),
-            contentScale = ContentScale.Crop,
-        )
+private fun TrackRow(
+    track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, onReset: MetadataResetter,
+    pinned: Boolean = false, onPin: (() -> Unit)? = null,
+    favorite: Boolean = false, onToggleFavorite: (() -> Unit)? = null,
+    playlists: List<PlaylistSummary> = emptyList(), onAddToPlaylist: ((Long) -> Unit)? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+) {
+    var editing by remember(track.stableKey) { mutableStateOf(false) }
+    var choosingPlaylist by remember(track.stableKey) { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        AsyncImage(track.artworkUri, "${track.album} cover", Modifier.size(52.dp).background(CathodePanel), contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                "${track.artist} · ${track.album}",
-                color = CathodeMuted,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (track.tags.isNotEmpty()) {
-                Text(track.tags, color = CathodeDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-            }
+            Text("${track.artist} · ${track.album}", color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (track.tags.isNotEmpty()) Text(track.tags, color = CathodeDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
-        Text(formatDuration(track.durationMs), color = CathodeDim, style = MaterialTheme.typography.labelMedium)
-        if (onPin != null) IconButton(onClick = onPin) {
-            Icon(if (pinned) Icons.Default.Star else Icons.Outlined.StarOutline, if (pinned) "Unpin" else "Pin", tint = if (pinned) CathodeCyan else CathodeMuted)
-        }
-        IconButton(onClick = { editing = true }) {
-            Icon(Icons.Default.Edit, "Edit metadata", tint = CathodeMuted)
-        }
+        if (onPin != null) IconButton(onClick = onPin) { Icon(if (pinned) Icons.Default.Star else Icons.Outlined.StarOutline, if (pinned) "Unpin" else "Pin", tint = if (pinned) CathodeCyan else CathodeMuted) }
+        if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (favorite) "Remove favorite" else "Favorite", tint = if (favorite) CathodeCyan else CathodeMuted) }
+        if (onAddToPlaylist != null) IconButton(onClick = { choosingPlaylist = true }) { Icon(Icons.Default.PlaylistAdd, "Add to playlist", tint = CathodeMuted) }
+        if (onRemoveFromPlaylist != null) IconButton(onClick = onRemoveFromPlaylist) { Icon(Icons.Default.Delete, "Remove from playlist", tint = CathodeMuted) }
+        IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Edit metadata", tint = CathodeMuted) }
     }
-    if (editing) {
-        MetadataDialog(
-            track = track,
-            onDismiss = { editing = false },
-            onReset = { onReset(track); editing = false },
-            onSave = { title, artist, album, tags, artworkUri ->
-                onEdit(track, title, artist, album, tags, artworkUri)
-                editing = false
-            },
-        )
+    if (editing) MetadataDialog(track,{ editing = false },{ onReset(track); editing = false }) { title,artist,album,tags,artworkUri ->
+        onEdit(track,title,artist,album,tags,artworkUri); editing = false
     }
+    if (choosingPlaylist) AlertDialog(
+        onDismissRequest = { choosingPlaylist = false }, title = { Text("Add to playlist") },
+        text = { Column {
+            if (playlists.isEmpty()) Text("Create a playlist from the Playlists library tab.", color = CathodeMuted)
+            playlists.forEach { playlist -> TextButton(onClick = { onAddToPlaylist?.invoke(playlist.id); choosingPlaylist = false }) { Text("${playlist.name} · ${playlist.trackCount}") } }
+        } },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { choosingPlaylist = false }) { Text("Cancel") } },
+    )
 }
 
 @Composable

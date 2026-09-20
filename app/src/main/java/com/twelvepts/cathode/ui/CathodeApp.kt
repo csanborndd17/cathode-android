@@ -88,6 +88,10 @@ fun CathodeApp(
     var logoRevealed by remember { mutableStateOf(false) }
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
+    fun playTrack(track: com.twelvepts.cathode.model.AudioTrack) {
+        viewModel.recordPlay(track)
+        player.play(library.tracks, track)
+    }
     val visibleTabs = settings.tabOrder.mapNotNull { name -> CathodeTab.entries.firstOrNull { it.name == name } }
         .filterNot { it.name in settings.hiddenTabs }
         .ifEmpty { listOf(CathodeTab.Home, CathodeTab.Settings) }
@@ -164,25 +168,36 @@ fun CathodeApp(
                 CathodeTab.Home -> HomeScreen(
                     state = library,
                     onRescan = viewModel::rescan,
-                    onPlay = { player.play(library.tracks, it) },
+                    onPlay = ::playTrack,
                     onEdit = viewModel::updateMetadata,
                     onReset = viewModel::resetMetadata,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onAddToPlaylist = viewModel::addToPlaylist,
                     settings = settings,
                     store = settingsStore,
                 )
                 CathodeTab.Search -> SearchScreen(
                     tracks = library.tracks,
-                    onPlay = { player.play(library.tracks, it) },
+                    onPlay = ::playTrack,
                     onEdit = viewModel::updateMetadata,
                     onReset = viewModel::resetMetadata,
+                    favoriteKeys = library.favoriteKeys,
+                    playlists = library.playlists,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onAddToPlaylist = viewModel::addToPlaylist,
                 )
                 CathodeTab.Library -> LibraryScreen(
                     state = library,
                     requestPermission = requestPermission,
                     onRescan = viewModel::rescan,
-                    onPlay = { player.play(library.tracks, it) },
+                    onPlay = ::playTrack,
                     onEdit = viewModel::updateMetadata,
                     onReset = viewModel::resetMetadata,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onCreatePlaylist = viewModel::createPlaylist,
+                    onDeletePlaylist = viewModel::deletePlaylist,
+                    onAddToPlaylist = viewModel::addToPlaylist,
+                    onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                     settings = settings,
                     store = settingsStore,
                 )

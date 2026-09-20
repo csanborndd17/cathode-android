@@ -11,6 +11,7 @@ enum class ThemePreset(val label: String) {
 }
 enum class LibraryCategory(val label: String) {
     SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), FOLDERS("Folders"),
+    FAVORITES("Favorites"), PLAYLISTS("Playlists"),
 }
 enum class LibrarySort(val label: String) {
     RECENT("Recent"), TITLE("Title"), ARTIST("Artist"), ALBUM("Album"), DURATION("Duration"),
@@ -43,7 +44,7 @@ data class CathodeSettings(
 ) {
     companion object {
         val defaultTabs = listOf("Home", "Search", "Library", "Acquire", "Settings")
-        val defaultHomeSections = listOf("Pinned", "Recently added")
+        val defaultHomeSections = listOf("Pinned", "Recently played", "Most played", "Recently added")
     }
 }
 
