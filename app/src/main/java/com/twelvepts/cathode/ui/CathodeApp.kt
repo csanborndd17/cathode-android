@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -67,6 +68,7 @@ enum class CathodeTab(val label: String, val icon: ImageVector) {
     Search("SEARCH", Icons.Default.Search),
     Library("LIBRARY", Icons.Default.LibraryMusic),
     Acquire("ACQUIRE", Icons.Default.CloudDownload),
+    Settings("SETTINGS", Icons.Default.Settings),
 }
 
 @Composable
@@ -74,20 +76,36 @@ fun CathodeApp(
     viewModel: CathodeViewModel,
     player: PlayerConnection,
     requestPermission: () -> Unit,
+    settings: CathodeSettings,
+    settingsStore: CathodeSettingsStore,
 ) {
-    var tab by remember { mutableStateOf(CathodeTab.Home) }
+    var tab by remember {
+        mutableStateOf(
+            runCatching { CathodeTab.valueOf(settings.lastTab) }.getOrDefault(CathodeTab.Home),
+        )
+    }
     var showPlayer by remember { mutableStateOf(false) }
-    var showStartup by remember { mutableStateOf(true) }
+    var showStartup by remember { mutableStateOf(settings.startupAnimation) }
     var logoRevealed by remember { mutableStateOf(false) }
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
 
-    BackHandler(enabled = !showPlayer && tab != CathodeTab.Home) { tab = CathodeTab.Home }
+    fun selectTab(next: CathodeTab) {
+        tab = next
+        settingsStore.update { it.copy(lastTab = next.name) }
+    }
 
-    LaunchedEffect(Unit) {
-        logoRevealed = true
-        delay(1_250)
-        showStartup = false
+    BackHandler(enabled = !showPlayer && tab != CathodeTab.Home) { selectTab(CathodeTab.Home) }
+
+    LaunchedEffect(settings.startupAnimation) {
+        if (settings.startupAnimation) {
+            showStartup = true
+            logoRevealed = true
+            delay(1_250)
+            showStartup = false
+        } else {
+            showStartup = false
+        }
     }
 
     LaunchedEffect(playback.connected, playback.isPlaying) {
@@ -112,13 +130,14 @@ fun CathodeApp(
                         durationMs = playback.durationMs,
                         onOpen = { showPlayer = true },
                         onToggle = player::togglePlayPause,
+                        compact = settings.compact,
                     )
                 }
                 NavigationBar(containerColor = CathodePanel) {
                     CathodeTab.entries.forEach { item ->
                         NavigationBarItem(
                             selected = item == tab,
-                            onClick = { tab = item },
+                            onClick = { selectTab(item) },
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = { Text(item.label) },
                             colors = NavigationBarItemDefaults.colors(
@@ -155,6 +174,7 @@ fun CathodeApp(
                     onEdit = viewModel::updateMetadata,
                 )
                 CathodeTab.Acquire -> AcquireScreen(onDownloadStarted = viewModel::rescan)
+                CathodeTab.Settings -> SettingsScreen(settings = settings, store = settingsStore)
             }
         }
     }
@@ -178,15 +198,16 @@ private fun MiniPlayer(
     durationMs: Long,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
+    compact: Boolean,
 ) {
     val view = LocalView.current
     Box(
-        Modifier.fillMaxWidth().height(64.dp).background(CathodePanel).clickable(onClick = onOpen),
+        Modifier.fillMaxWidth().height(if (compact) 54.dp else 64.dp).background(CathodePanel).clickable(onClick = onOpen),
     ) {
         AsyncImage(
             model = artworkUri,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize().blur(8.dp).alpha(.38f),
+            modifier = Modifier.fillMaxSize().blur(8.dp).alpha((.16f + CathodeGlowStrength * .34f).coerceIn(.16f, .5f)),
             contentScale = ContentScale.Crop,
         )
         Box(
