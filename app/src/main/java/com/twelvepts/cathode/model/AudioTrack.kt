@@ -15,9 +15,11 @@ data class AudioTrack(
     val mimeType: String?,
     val relativePath: String?,
     val tags: String = "",
+    val customArtworkUri: String? = null,
 ) {
     val artworkUri: Uri
-        get() = Uri.parse("content://media/external/audio/albumart/$albumId")
+        get() = customArtworkUri?.takeIf(String::isNotBlank)?.let(Uri::parse)
+            ?: Uri.parse("content://media/external/audio/albumart/$albumId")
 
     val isMonochromeDownload: Boolean
         get() = relativePath?.contains("Monochrome", ignoreCase = true) == true
