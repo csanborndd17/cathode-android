@@ -1,14 +1,13 @@
 package com.twelvepts.cathode.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Typography
 
 val CathodeBlack = Color(0xFF03090B)
 val CathodePanel = Color(0xFF071216)
@@ -34,14 +33,14 @@ private val Colors = darkColorScheme(
 )
 
 private val CathodeTypography = Typography(
-    displaySmall = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 34.sp),
-    headlineMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 26.sp),
-    titleLarge = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 20.sp),
-    titleMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
-    bodyLarge = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp),
-    bodyMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp),
+    displaySmall = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 34.sp),
+    headlineMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 28.sp),
+    titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 22.sp),
+    titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 17.sp),
+    bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 16.sp),
+    bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp),
     labelLarge = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-    labelMedium = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+    labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp),
 )
 
 @Composable
