@@ -1,9 +1,8 @@
 package com.twelvepts.cathode.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -33,7 +30,6 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +64,9 @@ fun CathodeApp(
     val library by viewModel.library.collectAsStateWithLifecycle()
     val playback by player.state.collectAsStateWithLifecycle()
 
+    BackHandler(enabled = showPlayer) { showPlayer = false }
+    BackHandler(enabled = !showPlayer && tab != CathodeTab.Home) { tab = CathodeTab.Home }
+
     LaunchedEffect(playback.connected, playback.isPlaying) {
         while (playback.connected) {
             player.refreshPosition()
@@ -81,9 +80,13 @@ fun CathodeApp(
         bottomBar = {
             Column(Modifier.navigationBarsPadding()) {
                 if (playback.title.isNotEmpty()) {
-                    MiniPlayer(playback.title, playback.artist, playback.isPlaying, {
-                        showPlayer = true
-                    }, player::togglePlayPause)
+                    MiniPlayer(
+                        title = playback.title,
+                        artist = playback.artist,
+                        isPlaying = playback.isPlaying,
+                        onOpen = { showPlayer = true },
+                        onToggle = player::togglePlayPause,
+                    )
                 }
                 NavigationBar(containerColor = CathodePanel) {
                     CathodeTab.entries.forEach { item ->
@@ -107,9 +110,24 @@ fun CathodeApp(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                CathodeTab.Home -> HomeScreen(library, onRescan = viewModel::rescan, onPlay = { player.play(library.tracks, it) })
-                CathodeTab.Search -> SearchScreen(library.tracks, onPlay = { player.play(library.tracks, it) })
-                CathodeTab.Library -> LibraryScreen(library, requestPermission, viewModel::rescan) { player.play(library.tracks, it) }
+                CathodeTab.Home -> HomeScreen(
+                    state = library,
+                    onRescan = viewModel::rescan,
+                    onPlay = { player.play(library.tracks, it) },
+                    onEdit = viewModel::updateMetadata,
+                )
+                CathodeTab.Search -> SearchScreen(
+                    tracks = library.tracks,
+                    onPlay = { player.play(library.tracks, it) },
+                    onEdit = viewModel::updateMetadata,
+                )
+                CathodeTab.Library -> LibraryScreen(
+                    state = library,
+                    requestPermission = requestPermission,
+                    onRescan = viewModel::rescan,
+                    onPlay = { player.play(library.tracks, it) },
+                    onEdit = viewModel::updateMetadata,
+                )
                 CathodeTab.Acquire -> AcquireScreen(onDownloadStarted = viewModel::rescan)
             }
         }
@@ -128,20 +146,17 @@ private fun MiniPlayer(
     onOpen: () -> Unit,
     onToggle: () -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxWidth().background(CathodePanel).clickable(onClick = onOpen),
-    ) {
-        HorizontalDivider(color = CathodeCyan)
+    Column(Modifier.fillMaxWidth().background(CathodePanel).clickable(onClick = onOpen)) {
+        HorizontalDivider(color = CathodeDim)
         Row(
-            Modifier.fillMaxWidth().height(64.dp).padding(start = 16.dp, end = 8.dp),
+            Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(">", color = CathodeCyan, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
+            Spacer(Modifier.width(8.dp))
             IconButton(onClick = onToggle) {
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
