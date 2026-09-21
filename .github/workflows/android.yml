@@ -17,6 +17,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Validate platform parity ledger
+        run: python3 -m json.tool docs/parity.json > /dev/null
+
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "product": "Cathode",
+  "studio": "12Pts",
+  "androidVersion": "0.7.5",
+  "desktopVersion": null,
+  "desktopRepository": "csanborndd17/cathode-desktop",
+  "features": [
+    {"id":"library.local-scan","android":"implemented","desktop":"planned","desktopEquivalent":"User-selected folders and filesystem watcher"},
+    {"id":"playback.lossless","android":"implemented","desktop":"planned","desktopEquivalent":"Native decoder with FLAC support"},
+    {"id":"playback.system-session","android":"implemented","desktop":"planned","desktopEquivalent":"OS media session and media keys"},
+    {"id":"playback.transport","android":"implemented","desktop":"planned","desktopEquivalent":"Shared queue and transport semantics"},
+    {"id":"library.browse","android":"implemented","desktop":"planned","desktopEquivalent":"Songs, albums, artists, folders, and playlists"},
+    {"id":"library.search","android":"implemented","desktop":"planned","desktopEquivalent":"Search metadata, folder, and custom tags"},
+    {"id":"library.collections","android":"implemented","desktop":"planned","desktopEquivalent":"Local favorites and playlists"},
+    {"id":"library.metadata-overrides","android":"implemented","desktop":"planned","desktopEquivalent":"Non-destructive metadata and artwork overrides"},
+    {"id":"visual.artwork-theme","android":"implemented","desktop":"planned","desktopEquivalent":"Artwork sampling, blur, gradients, and particles"},
+    {"id":"profile.customization","android":"implemented","desktop":"planned","desktopEquivalent":"Local profile and appearance settings"},
+    {"id":"history.transmission-log","android":"implemented","desktop":"planned","desktopEquivalent":"Compatible annual listening-stat schema"},
+    {"id":"discover.source-hub","android":"implemented","desktop":"planned","desktopEquivalent":"Secure browser or system-browser source launcher"},
+    {"id":"audio.equalizer","android":"partial","desktop":"planned","notes":"Android support depends on the active audio route"},
+    {"id":"audio.replaygain","android":"planned","desktop":"planned"},
+    {"id":"playback.transitions","android":"planned","desktop":"planned"},
+    {"id":"library.lyrics","android":"planned","desktop":"planned"}
+  ]
+}
+
