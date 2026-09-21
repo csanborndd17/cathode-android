@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -100,11 +101,12 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
     val view = LocalView.current
     var showQueue by remember { mutableStateOf(false) }
     var showAudioLab by remember { mutableStateOf(false) }
+    var showSleepTimer by remember { mutableStateOf(false) }
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    BackHandler { when { showAudioLab -> showAudioLab = false; showQueue -> showQueue = false; else -> onDismiss() } }
+    BackHandler { when { showSleepTimer -> showSleepTimer = false; showAudioLab -> showAudioLab = false; showQueue -> showQueue = false; else -> onDismiss() } }
 
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Box(Modifier.fillMaxSize()) {
@@ -146,6 +148,9 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         textAlign = TextAlign.Center,
                     )
                     Row {
+                        IconButton(onClick = { showSleepTimer = true }) {
+                            Icon(Icons.Default.Bedtime, "Sleep timer", tint = if (state.sleepTimerEndEpochMs > 0) CathodeCyan else CathodeMuted)
+                        }
                         IconButton(onClick = { showAudioLab = true }) { Icon(Icons.Default.Equalizer, "Open Audio Lab", tint = CathodeCyan) }
                         IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Open queue", tint = CathodeCyan) }
                     }
@@ -178,6 +183,9 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                state.playbackError?.let {
+                    Text(it, color = CathodeError, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+                }
                 Spacer(Modifier.height(10.dp))
                 WaveformScrubber(
                     title = state.title,
@@ -264,6 +272,25 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
     }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
+    if (showSleepTimer) AlertDialog(
+        onDismissRequest = { showSleepTimer = false },
+        title = { Text("Sleep timer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val remaining = (state.sleepTimerEndEpochMs - System.currentTimeMillis()).coerceAtLeast(0)
+                if (remaining > 0) Text("Pausing in about " + ((remaining + 59_999) / 60_000) + " minutes.", color = CathodeCyan)
+                listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                    TextButton(onClick = { player.setSleepTimer(minutes); showSleepTimer = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("$minutes minutes")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (state.sleepTimerEndEpochMs > 0) TextButton(onClick = { player.cancelSleepTimer(); showSleepTimer = false }) { Text("Cancel timer") }
+        },
+        dismissButton = { TextButton(onClick = { showSleepTimer = false }) { Text("Close") } },
+    )
 }
 
 @Composable

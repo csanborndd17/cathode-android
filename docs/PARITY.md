@@ -16,9 +16,14 @@ This split prevents Android Gradle, signing, permissions, and MediaStore behavio
 | Feature | Contract ID | Android | Desktop |
 |---|---|---:|---:|
 | Local library scan | `library.local-scan` | Implemented | Planned |
+| Live library refresh | `library.live-refresh` | Implemented | Planned |
+| Download state and indexing | `discover.download-status` | Implemented | Planned |
 | FLAC/lossless playback | `playback.lossless` | Implemented | Planned |
 | System media controls | `playback.system-session` | Implemented | Planned |
 | Queue, shuffle, repeat, scrubbing | `playback.transport` | Implemented | Planned |
+| Playback-session restoration | `playback.session-restore` | Implemented | Planned |
+| Sleep timer | `playback.sleep-timer` | Implemented | Planned |
+| Playback error recovery | `playback.error-recovery` | Implemented | Planned |
 | Albums, artists, folders, playlists | `library.browse` | Implemented | Planned |
 | Search and custom tags | `library.search` | Implemented | Planned |
 | Favorites and playlists | `library.collections` | Implemented | Planned |
@@ -30,7 +35,7 @@ This split prevents Android Gradle, signing, permissions, and MediaStore behavio
 | Playlist-link library conversion | `import.playlist-link` | Planned | Planned |
 | Equalizer | `audio.equalizer` | Partial | Planned |
 | ReplayGain | `audio.replaygain` | Planned | Planned |
-| Gapless and crossfade | `playback.transitions` | Planned | Planned |
+| Gapless and crossfade | `playback.transitions` | Partial | Planned |
 | Synchronized lyrics | `library.lyrics` | Planned | Planned |
 
 ## Change rule
@@ -42,4 +47,3 @@ This split prevents Android Gradle, signing, permissions, and MediaStore behavio
 5. Never mark platforms equal when only their visuals or labels match.
 
 Statuses are `implemented`, `partial`, `queued`, `planned`, and `not_applicable`.
-

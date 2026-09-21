@@ -48,6 +48,8 @@ data class PlaybackState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
     val queue: List<QueueEntry> = emptyList(),
+    val sleepTimerEndEpochMs: Long = 0,
+    val playbackError: String? = null,
 )
 
 class PlayerConnection(context: Context) : Player.Listener {
@@ -61,6 +63,8 @@ class PlayerConnection(context: Context) : Player.Listener {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private val audioPreferences = appContext.getSharedPreferences("audio_lab", Context.MODE_PRIVATE)
+    private val playbackPreferences = appContext.getSharedPreferences("playback_session", Context.MODE_PRIVATE)
+    private var playbackError: String? = null
 
     init {
         val token = SessionToken(appContext, ComponentName(appContext, CathodePlaybackService::class.java))
@@ -123,6 +127,14 @@ class PlayerConnection(context: Context) : Player.Listener {
             else -> Player.REPEAT_MODE_OFF
         }
     }
+
+    fun setSleepTimer(minutes: Int) {
+        val end = if (minutes <= 0) 0L else System.currentTimeMillis() + minutes * 60_000L
+        playbackPreferences.edit().putLong("sleep_end", end).apply()
+        publishState()
+    }
+
+    fun cancelSleepTimer() = setSleepTimer(0)
 
     fun setEqualizerEnabled(enabled: Boolean) {
         equalizer?.enabled = enabled
@@ -191,11 +203,22 @@ class PlayerConnection(context: Context) : Player.Listener {
                 repeatMode = p.repeatMode,
                 shuffleEnabled = p.shuffleModeEnabled,
                 queue = queue,
+                sleepTimerEndEpochMs = playbackPreferences.getLong("sleep_end", 0L)
+                    .takeIf { it > System.currentTimeMillis() } ?: 0L,
+                playbackError = playbackError,
             )
         }
     }
 
     override fun onEvents(player: Player, events: Player.Events) = publishState()
+    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        playbackError = error.message ?: "This track could not be played."
+        publishState()
+    }
+    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+        playbackError = null
+        publishState()
+    }
     override fun onAudioSessionIdChanged(audioSessionId: Int) { attachAudioLab(audioSessionId) }
 
     private fun attachAudioLab(audioSessionId: Int) {

@@ -10,6 +10,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -36,6 +37,19 @@ class CathodePlaybackService : MediaSessionService() {
             handler.postDelayed(this, 30_000)
         }
     }
+    private val sleepTimer = object : Runnable {
+        override fun run() {
+            val player = mediaSession?.player ?: return
+            val preferences = getSharedPreferences("playback_session", MODE_PRIVATE)
+            val end = preferences.getLong("sleep_end", 0L)
+            if (end > 0L && System.currentTimeMillis() >= end) {
+                player.pause()
+                preferences.edit().remove("sleep_end").apply()
+                saveSession(player)
+            }
+            handler.postDelayed(this, 1_000)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -47,6 +61,7 @@ class CathodePlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(audioAttributes, true)
             setHandleAudioBecomingNoisy(true)
+            pauseAtEndOfMediaItems = false
         }
         restoreSession(player)
         player.addListener(object : Player.Listener {
@@ -63,6 +78,16 @@ class CathodePlaybackService : MediaSessionService() {
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = saveSession(player)
             override fun onRepeatModeChanged(repeatMode: Int) = saveSession(player)
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = saveSession(player)
+            override fun onPlayerError(error: PlaybackException) {
+                val failedIndex = player.currentMediaItemIndex
+                val shouldContinue = player.playWhenReady
+                if (failedIndex >= 0 && player.mediaItemCount > 1) {
+                    player.removeMediaItem(failedIndex)
+                    player.prepare()
+                    if (shouldContinue) player.play()
+                }
+                saveSession(player)
+            }
         })
 
         val activityIntent = Intent(this, MainActivity::class.java)
@@ -71,6 +96,7 @@ class CathodePlaybackService : MediaSessionService() {
         )
         mediaSession = MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build()
         handler.postDelayed(checkpoint, 30_000)
+        handler.post(sleepTimer)
     }
 
     private fun recordStart(player: Player, force: Boolean) {
@@ -153,6 +179,7 @@ class CathodePlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(checkpoint)
+        handler.removeCallbacks(sleepTimer)
         mediaSession?.run {
             saveSession(player)
             player.release()
