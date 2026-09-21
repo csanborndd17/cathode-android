@@ -62,8 +62,7 @@ class CathodePlaybackService : MediaSessionService() {
             .build()
         val extractorsFactory = DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
-        val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setExtractorsFactory(extractorsFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(this, extractorsFactory)
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .build().apply {
