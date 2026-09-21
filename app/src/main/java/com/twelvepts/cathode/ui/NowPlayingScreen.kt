@@ -7,8 +7,11 @@ import android.media.MediaMetadataRetriever
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,13 +66,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +92,8 @@ import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
@@ -167,15 +179,12 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                 )
                 Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(10.dp))
-                Slider(
-                    value = state.positionMs.toFloat().coerceIn(0f, state.durationMs.coerceAtLeast(1).toFloat()),
-                    onValueChange = { player.seekTo(it.toLong()) },
-                    valueRange = 0f..state.durationMs.coerceAtLeast(1).toFloat(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = CathodeCyan,
-                        activeTrackColor = CathodeCyan,
-                        inactiveTrackColor = CathodeDim,
-                    ),
+                WaveformScrubber(
+                    title = state.title,
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    isPlaying = state.isPlaying,
+                    onSeek = player::seekTo,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(formatDuration(state.positionMs), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
@@ -306,6 +315,61 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
     }
 }
 
+
+@Composable
+private fun WaveformScrubber(
+    title: String,
+    positionMs: Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    onSeek: (Long) -> Unit,
+) {
+    var widthPx by remember { mutableStateOf(1f) }
+    val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val seed = remember(title) { abs(title.hashCode() % 23) + 5 }
+    val amplitudes = remember(seed) {
+        List(84) { index ->
+            (.20f + abs(sin((index + 1) * seed * .071f)).toFloat() * .68f + (index % 7) * .012f).coerceAtMost(1f)
+        }
+    }
+    fun seekAt(x: Float) {
+        if (durationMs > 0) onSeek(((x / widthPx).coerceIn(0f, 1f) * durationMs).toLong())
+    }
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(74.dp)
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(durationMs) { detectTapGestures { seekAt(it.x) } }
+            .pointerInput(durationMs) {
+                detectDragGestures(
+                    onDragStart = { seekAt(it.x) },
+                    onDrag = { change, _ -> seekAt(change.position.x) },
+                )
+            }
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(positionMs.toFloat(), 0f..durationMs.coerceAtLeast(1).toFloat())
+                setProgress { value -> onSeek(value.toLong().coerceIn(0, durationMs.coerceAtLeast(0))); true }
+            },
+    ) {
+        val gap = 2.5f
+        val barWidth = (size.width - gap * (amplitudes.size - 1)) / amplitudes.size
+        amplitudes.forEachIndexed { index, amplitude ->
+            val fraction = index.toFloat() / amplitudes.lastIndex
+            val active = fraction <= progress
+            val baseHeight = size.height * amplitude
+            val pulse = if (isPlaying && abs(fraction - progress) < .018f) 1.18f else 1f
+            val height = (baseHeight * pulse).coerceAtMost(size.height)
+            val left = index * (barWidth + gap)
+            drawRoundRect(
+                color = if (active) CathodeCyan else CathodeText.copy(alpha = .30f),
+                topLeft = androidx.compose.ui.geometry.Offset(left, (size.height - height) / 2f),
+                size = androidx.compose.ui.geometry.Size(barWidth.coerceAtLeast(1f), height),
+                cornerRadius = CornerRadius(barWidth, barWidth),
+            )
+        }
+    }
+}
 
 private data class AudioDetails(val sampleRate: String = "—", val bitrate: String = "—", val bitDepth: String = "—")
 

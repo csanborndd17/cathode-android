@@ -25,7 +25,7 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
         ArtworkBackdrop(artworkUri, settings.animations)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .22f), CathodeBlack.copy(alpha = .72f)))))
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

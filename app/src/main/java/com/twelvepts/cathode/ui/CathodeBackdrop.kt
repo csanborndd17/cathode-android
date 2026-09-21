@@ -61,24 +61,24 @@ fun SignalDust(animations: Boolean, modifier: Modifier = Modifier) {
         label = "dust-phase",
     )
     Canvas(modifier.fillMaxSize()) {
-        repeat(34) { index ->
+        repeat(64) { index ->
             val seed = index * 47.17f
             val x = ((seed * 29f) % size.width + phase * size.width * (.04f + index % 4 * .012f)) % size.width
             val baseY = (seed * 13f) % size.height
             val y = (baseY - phase * size.height * (.08f + index % 5 * .015f) + size.height) % size.height
             val shimmer = .35f + .65f * ((sin(phase * 6.28f + index) + 1f) / 2f)
             drawCircle(
-                color = if (index % 5 == 0) CathodeCyan.copy(alpha = .12f * shimmer) else Color.White.copy(alpha = .055f * shimmer),
-                radius = 1.2f + index % 3,
+                color = if (index % 5 == 0) CathodeCyan.copy(alpha = .30f * shimmer) else Color.White.copy(alpha = .14f * shimmer),
+                radius = 1.8f + index % 4,
                 center = Offset(x, y),
             )
         }
         val streakY = size.height * (.18f + phase * .55f)
         drawLine(
-            brush = Brush.horizontalGradient(listOf(Color.Transparent, CathodeCyan.copy(alpha = .07f), Color.Transparent)),
+            brush = Brush.horizontalGradient(listOf(Color.Transparent, CathodeCyan.copy(alpha = .22f), Color.Transparent)),
             start = Offset(0f, streakY),
             end = Offset(size.width, streakY),
-            strokeWidth = 1.5f,
+            strokeWidth = 4f,
         )
     }
 }

@@ -1,11 +1,13 @@
 package com.twelvepts.cathode.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
@@ -82,5 +84,9 @@ fun CathodeTheme(settings: CathodeSettings, content: @Composable () -> Unit) {
         outline = CathodeDim,
         error = CathodeError,
     )
-    MaterialTheme(colorScheme = colors, typography = typography, shapes = shapes, content = content)
+    MaterialTheme(colorScheme = colors, typography = typography, shapes = shapes) {
+        CompositionLocalProvider(LocalContentColor provides CathodeText) {
+            content()
+        }
+    }
 }

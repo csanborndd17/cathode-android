@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.twelvepts.cathode.BuildConfig
 import com.twelvepts.cathode.LibraryState
 import java.util.Calendar
 
@@ -80,7 +81,7 @@ fun ProfileDrawerContent(
             onClick = { onClose(); onSettings() },
         )
         Spacer(Modifier.weight(1f))
-        Text("CATHODE // 12PTS", color = CathodeDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(20.dp))
+        Text("Cathode - 12Pts - v${BuildConfig.VERSION_NAME}", color = CathodeMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(20.dp))
     }
     if (editing) AlertDialog(
         onDismissRequest = { editing = false },
