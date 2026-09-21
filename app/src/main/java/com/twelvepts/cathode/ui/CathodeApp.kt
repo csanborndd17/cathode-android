@@ -104,6 +104,10 @@ fun CathodeApp(
         }
     }
 
+    CompositionLocalProvider(
+        LocalPlayNext provides player::playNext,
+        LocalAddToQueue provides player::addToQueue,
+    ) {
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -203,6 +207,8 @@ fun CathodeApp(
                 }
             }
         }
+    }
+
     }
 
     if (showPlayer) NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })

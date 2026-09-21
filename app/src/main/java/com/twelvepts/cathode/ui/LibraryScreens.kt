@@ -34,6 +34,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -57,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +78,9 @@ typealias MetadataEditor = (AudioTrack, String, String, String, String, String?)
 typealias MetadataResetter = (AudioTrack) -> Unit
 typealias FavoriteToggler = (AudioTrack) -> Unit
 typealias PlaylistAdder = (Long, AudioTrack) -> Unit
+
+val LocalPlayNext = staticCompositionLocalOf<(AudioTrack) -> Unit> { {} }
+val LocalAddToQueue = staticCompositionLocalOf<(AudioTrack) -> Unit> { {} }
 
 @Composable
 fun HomeScreen(
@@ -402,6 +409,9 @@ private fun TrackRow(
 ) {
     var editing by remember(track.stableKey) { mutableStateOf(false) }
     var choosingPlaylist by remember(track.stableKey) { mutableStateOf(false) }
+    var moreMenu by remember(track.stableKey) { mutableStateOf(false) }
+    val playNext = LocalPlayNext.current
+    val addToQueue = LocalAddToQueue.current
     Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         AsyncImage(track.artworkUri, "${track.album} cover", Modifier.size(52.dp).background(CathodePanel), contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -413,7 +423,26 @@ private fun TrackRow(
         if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (favorite) "Remove favorite" else "Favorite", tint = if (favorite) CathodeCyan else CathodeMuted) }
         if (onAddToPlaylist != null) IconButton(onClick = { choosingPlaylist = true }) { Icon(Icons.Default.PlaylistAdd, "Add to playlist", tint = CathodeMuted) }
         if (onRemoveFromPlaylist != null) IconButton(onClick = onRemoveFromPlaylist) { Icon(Icons.Default.Delete, "Remove from playlist", tint = CathodeMuted) }
-        IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Edit metadata", tint = CathodeMuted) }
+        Box {
+            IconButton(onClick = { moreMenu = true }) { Icon(Icons.Default.MoreVert, "Track actions", tint = CathodeMuted) }
+            DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Play next") },
+                    leadingIcon = { Icon(Icons.Default.SkipNext, null) },
+                    onClick = { playNext(track); moreMenu = false },
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to queue") },
+                    leadingIcon = { Icon(Icons.Default.QueueMusic, null) },
+                    onClick = { addToQueue(track); moreMenu = false },
+                )
+                DropdownMenuItem(
+                    text = { Text("Edit metadata") },
+                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                    onClick = { editing = true; moreMenu = false },
+                )
+            }
+        }
     }
     if (editing) MetadataDialog(track,{ editing = false },{ onReset(track); editing = false }) { title,artist,album,tags,artworkUri ->
         onEdit(track,title,artist,album,tags,artworkUri); editing = false

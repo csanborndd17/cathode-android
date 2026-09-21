@@ -267,8 +267,11 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
                     Text("PLAYBACK QUEUE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text("${state.queue.size} tracks", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                 }
+                TextButton(onClick = player::removeQueueDuplicates, enabled = state.queue.map { it.mediaId }.distinct().size < state.queue.size) {
+                    Text("Deduplicate")
+                }
                 TextButton(onClick = player::clearUpcoming, enabled = state.mediaItemIndex + 1 < state.queue.size) {
-                    Text("Clear upcoming")
+                    Text("Clear")
                 }
             }
             LazyColumn(Modifier.fillMaxSize()) {

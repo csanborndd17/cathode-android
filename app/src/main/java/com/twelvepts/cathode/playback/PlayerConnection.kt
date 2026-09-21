@@ -105,6 +105,13 @@ class PlayerConnection(context: Context) : Player.Listener {
     fun moveQueueItem(from: Int, to: Int) = controller?.let {
         if (from in 0 until it.mediaItemCount && to in 0 until it.mediaItemCount && from != to) it.moveMediaItem(from, to)
     }
+    fun removeQueueDuplicates() = controller?.let { player ->
+        val seen = mutableSetOf<String>()
+        for (index in player.mediaItemCount - 1 downTo 0) {
+            val id = player.getMediaItemAt(index).mediaId
+            if (!seen.add(id) && index != player.currentMediaItemIndex) player.removeMediaItem(index)
+        }
+    }
     fun clearUpcoming() = controller?.let {
         val current = it.currentMediaItemIndex
         if (current >= 0 && current + 1 < it.mediaItemCount) it.removeMediaItems(current + 1, it.mediaItemCount)
