@@ -34,7 +34,7 @@ fun CathodeTheme(settings: CathodeSettings, content: @Composable () -> Unit) {
     }
     val accent = settings.customAccentArgb?.let(::Color) ?: presetAccent
     CathodeBlack = if (settings.amoled) Color.Black else Color(0xFF03090B)
-    CathodePanel = if (settings.amoled) Color(0xFF050505) else lerp(CathodeBlack, accent, .055f)
+    CathodePanel = (if (settings.amoled) Color(0xFF050505) else lerp(CathodeBlack, accent, .055f)).copy(alpha = .88f)
     CathodeCyan = accent
     CathodeBright = lerp(accent, Color.White, .35f)
     CathodeDim = lerp(accent, CathodeBlack, .48f)
@@ -66,6 +66,13 @@ fun CathodeTheme(settings: CathodeSettings, content: @Composable () -> Unit) {
         primary = CathodeCyan,
         onPrimary = CathodeBlack,
         secondary = CathodeBright,
+        onSecondary = CathodeBlack,
+        primaryContainer = CathodePanel,
+        onPrimaryContainer = CathodeText,
+        secondaryContainer = lerp(CathodePanel, CathodeCyan, .10f),
+        onSecondaryContainer = CathodeText,
+        tertiaryContainer = CathodePanel,
+        onTertiaryContainer = CathodeText,
         background = CathodeBlack,
         onBackground = CathodeText,
         surface = CathodePanel,

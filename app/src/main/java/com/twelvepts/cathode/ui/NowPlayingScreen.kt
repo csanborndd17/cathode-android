@@ -104,16 +104,17 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                 AsyncImage(
                     model = artwork,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize().blur(34.dp).alpha(.32f),
+                    modifier = Modifier.fillMaxSize().blur(22.dp).alpha(.54f),
                     contentScale = ContentScale.Crop,
                 )
             }
+            SignalDust(animations)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
-                        0f to CathodeBlack.copy(alpha = .35f),
-                        .48f to CathodeBlack.copy(alpha = .62f),
-                        1f to CathodeBlack,
+                        0f to CathodeBlack.copy(alpha = .20f),
+                        .70f to CathodeBlack.copy(alpha = .42f),
+                        1f to CathodeBlack.copy(alpha = .92f),
                     ),
                 ),
             )

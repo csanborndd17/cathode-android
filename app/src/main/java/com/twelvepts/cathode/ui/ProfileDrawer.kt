@@ -44,7 +44,7 @@ fun ProfileDrawerContent(
             store.update { it.copy(profileImageUri = uri.toString()) }
         }
     }
-    ModalDrawerSheet(drawerContainerColor = CathodePanel) {
+    ModalDrawerSheet(drawerContainerColor = CathodePanel.copy(alpha = .88f)) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
             AsyncImage(
                 model = settings.profileImageUri,

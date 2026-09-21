@@ -1,5 +1,6 @@
 package com.twelvepts.cathode.ui
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -31,7 +32,7 @@ import java.util.Calendar
 import kotlin.math.roundToInt
 
 @Composable
-fun TransmissionLogScreen(library: LibraryState, onClose: () -> Unit) {
+fun TransmissionLogScreen(library: LibraryState, artworkUri: Uri?, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
     val availableYears = remember(library.transmissionYears) {
@@ -41,8 +42,8 @@ fun TransmissionLogScreen(library: LibraryState, onClose: () -> Unit) {
     val signal = library.transmissionYears[selectedYear] ?: TransmissionYear(selectedYear, emptyList(), 0, null)
 
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
-        CathodeBackdrop(true)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .28f), CathodeBlack.copy(alpha = .92f)))))
+        ArtworkBackdrop(artworkUri, true)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .18f), CathodeBlack.copy(alpha = .76f)))))
         AnimatedContent(
             targetState = selectedYear,
             transitionSpec = { fadeIn() togetherWith fadeOut() },

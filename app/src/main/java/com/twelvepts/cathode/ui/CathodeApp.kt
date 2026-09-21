@@ -162,7 +162,7 @@ fun CathodeApp(
             },
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
-                CathodeBackdrop(settings.animations)
+                ArtworkBackdrop(playback.artworkUri, settings.animations)
                 AnimatedContent(
                     targetState = tab,
                     transitionSpec = {
@@ -212,8 +212,8 @@ fun CathodeApp(
     }
 
     if (showPlayer) NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
-    if (showSettings) SettingsScreen(settings, settingsStore, onClose = { showSettings = false })
-    if (showTransmission) TransmissionLogScreen(library, onClose = { showTransmission = false })
+    if (showSettings) SettingsScreen(settings, settingsStore, playback.artworkUri, onClose = { showSettings = false })
+    if (showTransmission) TransmissionLogScreen(library, playback.artworkUri, onClose = { showTransmission = false })
 
     AnimatedVisibility(visible = showStartup, exit = fadeOut(tween(if (settings.animations) 450 else 0))) {
         StartupReveal(logoRevealed)

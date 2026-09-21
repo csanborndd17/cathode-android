@@ -1,6 +1,7 @@
 package com.twelvepts.cathode.ui
 
 import android.graphics.Color.parseColor
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -14,7 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, onClose: () -> Unit) {
+fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artworkUri: Uri?, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     var advanced by remember { mutableStateOf(false) }
     var accentText by remember(settings.customAccentArgb) {
@@ -22,8 +23,8 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, onClo
     }
     var accentError by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
-        CathodeBackdrop(settings.animations)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .38f), CathodeBlack.copy(alpha = .86f)))))
+        ArtworkBackdrop(artworkUri, settings.animations)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .22f), CathodeBlack.copy(alpha = .72f)))))
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
