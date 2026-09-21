@@ -30,7 +30,7 @@ class AudioLibraryRepository(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             projection += MediaStore.Audio.Media.RELATIVE_PATH
         }
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} > 10000"
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND (${MediaStore.Audio.Media.DURATION} > 10000 OR ${MediaStore.Audio.Media.DURATION} = 0)"
         val result = mutableListOf<AudioTrack>()
 
         context.contentResolver.query(
@@ -57,13 +57,14 @@ class AudioLibraryRepository(private val context: Context) {
             } else -1
 
             while (cursor.moveToNext()) {
+                runCatching {
                 val id = cursor.getLong(idColumn)
                 val legacyKey = id.toString()
                 val displayName = cursor.getString(displayNameColumn).orUnknown("track-$id")
-                val fileSize = cursor.getLong(sizeColumn)
+                val fileSize = cursor.getLong(sizeColumn).coerceAtLeast(0)
                 val relativePath = if (pathColumn >= 0) cursor.getString(pathColumn) else null
                 val key = com.twelvepts.cathode.model.stableTrackKey(relativePath, displayName, fileSize)
-                val sourceTitle = cursor.getString(titleColumn).orUnknown("Unknown track")
+                val sourceTitle = cursor.getString(titleColumn).orUnknown(displayName.substringBeforeLast('.').ifBlank { "Unknown track" })
                 val sourceArtist = cursor.getString(artistColumn).orUnknown("Unknown artist")
                 val sourceAlbum = cursor.getString(albumColumn).orUnknown("Unknown album")
                 result += AudioTrack(
@@ -73,17 +74,18 @@ class AudioLibraryRepository(private val context: Context) {
                     artist = metadata.getString("$key.artist", metadata.getString("$legacyKey.artist", sourceArtist)).orUnknown(sourceArtist),
                     album = metadata.getString("$key.album", metadata.getString("$legacyKey.album", sourceAlbum)).orUnknown(sourceAlbum),
                     albumId = cursor.getLong(albumIdColumn),
-                    durationMs = cursor.getLong(durationColumn),
-                    trackNumber = cursor.getInt(trackColumn) % 1000,
-                    year = cursor.getInt(yearColumn),
+                    durationMs = cursor.getLong(durationColumn).coerceAtLeast(0),
+                    trackNumber = cursor.getInt(trackColumn).coerceAtLeast(0) % 1000,
+                    year = cursor.getInt(yearColumn).coerceAtLeast(0),
                     mimeType = cursor.getString(mimeColumn),
                     relativePath = relativePath,
                     displayName = displayName,
                     fileSize = fileSize,
-                    dateAddedSeconds = cursor.getLong(dateAddedColumn),
+                    dateAddedSeconds = cursor.getLong(dateAddedColumn).coerceAtLeast(0),
                     tags = metadata.getString("$key.tags", metadata.getString("$legacyKey.tags", "")).orEmpty(),
                     customArtworkUri = metadata.getString("$key.artwork", metadata.getString("$legacyKey.artwork", null)),
                 )
+                }
             }
         }
         result

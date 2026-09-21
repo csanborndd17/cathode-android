@@ -7,8 +7,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,6 +29,7 @@ import com.twelvepts.cathode.ui.CathodeApp
 import com.twelvepts.cathode.ui.CathodeSettingsStore
 import com.twelvepts.cathode.ui.CathodeTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -30,6 +37,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var playerConnection: PlayerConnection
     private lateinit var settingsStore: CathodeSettingsStore
     private var downloadReceiverRegistered = false
+    private var libraryRefreshJob: Job? = null
+    private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean, uri: Uri?) {
+            libraryRefreshJob?.cancel()
+            libraryRefreshJob = lifecycleScope.launch {
+                delay(650)
+                viewModel.rescan()
+            }
+        }
+    }
     private val downloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
@@ -39,11 +56,27 @@ class MainActivity : ComponentActivity() {
             if (id.toString() !in active) return
 
             val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            var title = "Download"
+            var localUri: String? = null
+            var reason = 0
             val status = manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) else null
+                if (cursor.moveToFirst()) {
+                    title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)) ?: title
+                    localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                    reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                } else null
             }
-            preferences.edit().putStringSet("active_ids", active - id.toString()).apply()
+            preferences.edit()
+                .putStringSet("active_ids", active - id.toString())
+                .putString("last_title", title)
+                .putInt("last_status", status ?: DownloadManager.STATUS_FAILED)
+                .putInt("last_reason", reason)
+                .apply()
             if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                localUri?.let(Uri::parse)?.path?.let { path ->
+                    MediaScannerConnection.scanFile(this@MainActivity, arrayOf(path), null, null)
+                }
                 lifecycleScope.launch {
                     delay(1_200)
                     viewModel.rescan()
@@ -68,6 +101,11 @@ class MainActivity : ComponentActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         downloadReceiverRegistered = true
+        contentResolver.registerContentObserver(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            true,
+            mediaObserver,
+        )
 
         val permission = if (Build.VERSION.SDK_INT >= 33) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -99,6 +137,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (downloadReceiverRegistered) unregisterReceiver(downloadReceiver)
+        contentResolver.unregisterContentObserver(mediaObserver)
+        libraryRefreshJob?.cancel()
         playerConnection.release()
         super.onDestroy()
     }

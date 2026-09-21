@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.twelvepts.cathode.BuildConfig
+import kotlinx.coroutines.delay
+
+private data class DownloadSignal(
+    val id: Long,
+    val title: String,
+    val status: Int,
+    val progress: Float?,
+)
+
+private data class DownloadSnapshot(
+    val active: List<DownloadSignal> = emptyList(),
+    val failedTitle: String? = null,
+    val failedReason: Int = 0,
+)
 
 private data class DiscoverSource(
     val id: String,
@@ -93,6 +108,7 @@ fun AcquireScreen() {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loadingProgress by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var downloads by remember { mutableStateOf(DownloadSnapshot()) }
     fun closeSource() {
         webView?.apply {
             stopLoading()
@@ -119,6 +135,12 @@ fun AcquireScreen() {
         connectivity.registerDefaultNetworkCallback(callback)
         onDispose { runCatching { connectivity.unregisterNetworkCallback(callback) } }
     }
+    LaunchedEffect(Unit) {
+        while (true) {
+            downloads = readDownloadSnapshot(context)
+            delay(750)
+        }
+    }
 
     BackHandler(enabled = selectedSource != null) {
         if (webView?.canGoBack() == true) webView?.goBack() else closeSource()
@@ -126,7 +148,22 @@ fun AcquireScreen() {
 
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
         if (selectedSource == null) {
-            DiscoverHub(online = online, onOpen = { selectedSource = it })
+            DiscoverHub(
+                online = online,
+                downloads = downloads,
+                onOpen = { selectedSource = it },
+                onCancelDownload = { id ->
+                    (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(id)
+                    val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
+                    preferences.edit().putStringSet("active_ids", preferences.getStringSet("active_ids", emptySet()).orEmpty() - id.toString()).apply()
+                    downloads = readDownloadSnapshot(context)
+                },
+                onDismissFailure = {
+                    context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE).edit()
+                        .remove("last_status").remove("last_title").remove("last_reason").apply()
+                    downloads = readDownloadSnapshot(context)
+                },
+            )
         } else {
             val source = selectedSource!!
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -240,7 +277,13 @@ fun AcquireScreen() {
 }
 
 @Composable
-private fun DiscoverHub(online: Boolean, onOpen: (DiscoverSource) -> Unit) {
+private fun DiscoverHub(
+    online: Boolean,
+    downloads: DownloadSnapshot,
+    onOpen: (DiscoverSource) -> Unit,
+    onCancelDownload: (Long) -> Unit,
+    onDismissFailure: () -> Unit,
+) {
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
@@ -259,6 +302,42 @@ private fun DiscoverHub(online: Boolean, onOpen: (DiscoverSource) -> Unit) {
                     Column(Modifier.padding(start = 12.dp)) {
                         Text("NO SIGNAL", color = CathodeCyan, fontWeight = FontWeight.Bold)
                         Text("Connect to Wi-Fi or mobile data before opening a source.", color = CathodeMuted)
+                    }
+                }
+            }
+        }
+        downloads.active.forEach { download ->
+            item(key = "download-" + download.id) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(start = 15.dp, end = 7.dp, top = 10.dp, bottom = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("DOWNLOADING", color = CathodeCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(download.title, maxLines = 1)
+                            }
+                            IconButton(onClick = { onCancelDownload(download.id) }) {
+                                Icon(Icons.Default.Close, "Cancel download", tint = CathodeMuted)
+                            }
+                        }
+                        if (download.progress != null) LinearProgressIndicator(
+                            progress = { download.progress },
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            color = CathodeCyan,
+                        ) else LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = CathodeCyan)
+                    }
+                }
+            }
+        }
+        downloads.failedTitle?.let { title ->
+            item(key = "download-failed") {
+                Surface(color = MaterialTheme.colorScheme.errorContainer.copy(alpha = .82f), shape = MaterialTheme.shapes.medium) {
+                    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("DOWNLOAD FAILED", color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                            Text(title, color = MaterialTheme.colorScheme.onErrorContainer, maxLines = 1)
+                            Text(downloadFailureLabel(downloads.failedReason), color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall)
+                        }
+                        IconButton(onClick = onDismissFailure) { Icon(Icons.Default.Close, "Dismiss failed download") }
                     }
                 }
             }
@@ -349,9 +428,49 @@ private class CathodeDownloadListener(private val context: Context, private val 
         runCatching { manager.enqueue(request) }
             .onSuccess { id ->
                 val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
-                preferences.edit().putStringSet("active_ids", preferences.getStringSet("active_ids", emptySet()).orEmpty() + id.toString()).apply()
+                preferences.edit()
+                    .putStringSet("active_ids", preferences.getStringSet("active_ids", emptySet()).orEmpty() + id.toString())
+                    .putString("title_" + id, filename)
+                    .apply()
                 Toast.makeText(context, "Download started: $filename", Toast.LENGTH_SHORT).show()
             }
             .onFailure { error -> Toast.makeText(context, "Download failed: " + error.message, Toast.LENGTH_LONG).show() }
     }
+}
+
+private fun readDownloadSnapshot(context: Context): DownloadSnapshot {
+    val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
+    val ids = preferences.getStringSet("active_ids", emptySet()).orEmpty().mapNotNull(String::toLongOrNull)
+    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    val active = ids.mapNotNull { id ->
+        runCatching {
+            manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
+                    ?: preferences.getString("title_" + id, "Download").orEmpty()
+                val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                DownloadSignal(id, title, status, if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else null)
+            }
+        }.getOrNull()
+    }
+    val lastStatus = preferences.getInt("last_status", 0)
+    return DownloadSnapshot(
+        active = active,
+        failedTitle = preferences.getString("last_title", null).takeIf { lastStatus == DownloadManager.STATUS_FAILED },
+        failedReason = preferences.getInt("last_reason", 0),
+    )
+}
+
+private fun downloadFailureLabel(reason: Int): String = when (reason) {
+    DownloadManager.ERROR_CANNOT_RESUME -> "The source would not resume the transfer."
+    DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Download storage is unavailable."
+    DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "A file with this name already exists."
+    DownloadManager.ERROR_FILE_ERROR -> "Android could not write the file."
+    DownloadManager.ERROR_HTTP_DATA_ERROR -> "The source returned incomplete data."
+    DownloadManager.ERROR_INSUFFICIENT_SPACE -> "There is not enough free storage."
+    DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "The source redirected too many times."
+    DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "The source returned an unsupported response."
+    else -> "Android DownloadManager reported error " + reason + "."
 }
