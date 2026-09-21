@@ -67,7 +67,6 @@ fun CathodeApp(
     var showSettings by remember { mutableStateOf(false) }
     var showTransmission by remember { mutableStateOf(false) }
     var showStartup by remember { mutableStateOf(settings.startupAnimation) }
-    var lastRecordedMediaId by remember { mutableStateOf<String?>(null) }
     var logoRevealed by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -102,21 +101,6 @@ fun CathodeApp(
         while (playback.connected) {
             player.refreshPosition()
             delay(500)
-        }
-    }
-    val currentMediaId = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId
-    LaunchedEffect(currentMediaId, playback.isPlaying) {
-        if (playback.isPlaying && currentMediaId != null && currentMediaId != lastRecordedMediaId) {
-            library.tracks.firstOrNull { it.id.toString() == currentMediaId }?.let(viewModel::recordPlaybackStart)
-            lastRecordedMediaId = currentMediaId
-        }
-    }
-    LaunchedEffect(currentMediaId, playback.isPlaying) {
-        if (!playback.isPlaying || currentMediaId == null) return@LaunchedEffect
-        val track = library.tracks.firstOrNull { it.id.toString() == currentMediaId } ?: return@LaunchedEffect
-        while (true) {
-            delay(30_000)
-            viewModel.recordListening(track, 30_000)
         }
     }
 

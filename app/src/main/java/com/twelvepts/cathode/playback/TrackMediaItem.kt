@@ -5,7 +5,7 @@ import androidx.media3.common.MediaMetadata
 import com.twelvepts.cathode.model.AudioTrack
 
 fun AudioTrack.toMediaItem(): MediaItem = MediaItem.Builder()
-    .setMediaId(id.toString())
+    .setMediaId(stableKey)
     .setUri(uri)
     .setMimeType(mimeType)
     .setMediaMetadata(
