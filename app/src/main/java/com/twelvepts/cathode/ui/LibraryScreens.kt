@@ -93,6 +93,7 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.model.AudioTrack
+import com.twelvepts.cathode.model.AudioQuality
 import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -316,6 +317,7 @@ fun LibraryScreen(
     var creatingBulkPlaylist by remember { mutableStateOf(false) }
     var bulkPlaylistName by remember { mutableStateOf("") }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var qualityFilter by remember { mutableStateOf<AudioQuality?>(null) }
     val context = LocalContext.current
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -331,19 +333,20 @@ fun LibraryScreen(
         }
     }
     val sorted = remember(filteredTracks, settings.librarySort) { sortTracks(filteredTracks, settings.librarySort) }
-    val favorites = sorted.filter { it.stableKey in state.favoriteKeys }
-    val groups = remember(sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
+    val qualitySorted = remember(sorted, qualityFilter) { qualityFilter?.let { quality -> sorted.filter { it.audioQuality == quality } } ?: sorted }
+    val favorites = qualitySorted.filter { it.stableKey in state.favoriteKeys }
+    val groups = remember(qualitySorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
         when (settings.libraryCategory) {
             LibraryCategory.SONGS, LibraryCategory.FAVORITES -> emptyList()
-            LibraryCategory.ALBUMS -> sorted.groupBy { "${it.artist}\u0000${it.album}" }
+            LibraryCategory.ALBUMS -> qualitySorted.groupBy { "${it.artist}\u0000${it.album}" }
                 .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, tracks.first().artist, tracks) }
-            LibraryCategory.ARTISTS -> sorted.groupBy(AudioTrack::artist)
+            LibraryCategory.ARTISTS -> qualitySorted.groupBy(AudioTrack::artist)
                 .map { (key, tracks) -> LibraryGroup(key, key, "${tracks.size} songs", tracks) }
-            LibraryCategory.FOLDERS -> sorted.groupBy { it.relativePath ?: "Unknown folder" }
+            LibraryCategory.FOLDERS -> qualitySorted.groupBy { it.relativePath ?: "Unknown folder" }
                 .map { (key, tracks) -> LibraryGroup(key, key.trimEnd('/').substringAfterLast('/'), "${tracks.size} songs", tracks) }
             LibraryCategory.PLAYLISTS -> state.playlists.map { playlist ->
                 val keys = state.playlistTrackKeys[playlist.id].orEmpty()
-                val tracks = keys.mapNotNull { key -> sorted.firstOrNull { it.stableKey == key } }
+                val tracks = keys.mapNotNull { key -> qualitySorted.firstOrNull { it.stableKey == key } }
                 LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks)
             }
         }.sortedBy { it.title.lowercase() }
@@ -402,6 +405,15 @@ fun LibraryScreen(
             placeholder = { Text("Search songs, artists, albums, and tags") }, singleLine = true,
             leadingIcon = { Icon(Icons.Default.Search, null) },
         )
+        if (detail == null) LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        ) {
+            item { FilterChip(selected = qualityFilter == null, onClick = { qualityFilter = null }, label = { Text("All quality") }) }
+            items(AudioQuality.entries) { quality ->
+                FilterChip(selected = qualityFilter == quality, onClick = { qualityFilter = quality }, label = { Text(quality.label) })
+            }
+        }
         when {
             !state.permissionGranted -> PermissionPanel(requestPermission)
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CathodeCyan) }
@@ -452,7 +464,7 @@ fun LibraryScreen(
                             label = { Text(if (settings.libraryGrid) "Grid" else "List") })
                     }
                 }
-                val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else sorted
+                val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else qualitySorted
                 if (settings.libraryCategory in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
                     if (directTracks.isEmpty()) MessagePanel("Nothing here yet", "Favorite songs with the star button.", CathodeMuted)
                     else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -665,6 +677,16 @@ private fun TrackRow(
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${track.artist} · ${track.album}", color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (track.tags.isNotEmpty()) Text(track.tags, color = CathodeDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Text(
+                track.audioQuality.label,
+                color = when (track.audioQuality) {
+                    AudioQuality.HI_RES, AudioQuality.LOSSLESS -> CathodeCyan
+                    AudioQuality.LOSSY, AudioQuality.SUSPECTED_TRANSCODE -> CathodeError
+                    AudioQuality.UNKNOWN -> CathodeDim
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
         }
         if (onPin != null) IconButton(onClick = onPin) { Icon(if (pinned) Icons.Default.Star else Icons.Outlined.StarOutline, if (pinned) "Unpin" else "Pin", tint = if (pinned) CathodeCyan else CathodeMuted) }
         if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (favorite) "Remove favorite" else "Favorite", tint = if (favorite) CathodeCyan else CathodeMuted) }
@@ -765,6 +787,7 @@ private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
             else Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(track.displayName, fontWeight = FontWeight.Bold)
                 DiagnosticRow("Format", value.mimeType)
+                DiagnosticRow("Classification", track.audioQuality.label)
                 DiagnosticRow("Duration", value.duration)
                 DiagnosticRow("Sample rate", value.sampleRate)
                 DiagnosticRow("Bit depth", value.bitDepth)
@@ -773,6 +796,8 @@ private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
                 DiagnosticRow("File size", value.fileSize)
                 DiagnosticRow("ReplayGain", value.replayGain)
                 DiagnosticRow("FLAC seek table", value.seekTable)
+                track.sampleRateHz?.let { DiagnosticRow("Verified sample rate", "${it / 1000f} kHz") }
+                track.bitDepth?.let { DiagnosticRow("Verified bit depth", "$it-bit") }
                 value.warning?.let { Text(it, color = CathodeError, modifier = Modifier.padding(top = 8.dp)) }
                 Text("A valid duration does not guarantee a valid FLAC seek table. If this track still cannot scrub, its container likely needs a lossless remux.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
             }

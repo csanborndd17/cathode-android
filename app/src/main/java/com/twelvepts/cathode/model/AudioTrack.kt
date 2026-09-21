@@ -2,6 +2,10 @@ package com.twelvepts.cathode.model
 
 import android.net.Uri
 
+enum class AudioQuality(val label: String) {
+    LOSSLESS("LOSSLESS"), HI_RES("HI-RES LOSSLESS"), LOSSY("LOSSY"), SUSPECTED_TRANSCODE("SUSPECTED TRANSCODE"), UNKNOWN("UNKNOWN")
+}
+
 data class AudioTrack(
     val id: Long,
     val uri: Uri,
@@ -22,6 +26,9 @@ data class AudioTrack(
     val lyrics: String = "",
     val replayGainDb: Float? = null,
     val hasFlacSeekTable: Boolean? = null,
+    val sampleRateHz: Int? = null,
+    val bitDepth: Int? = null,
+    val audioQuality: AudioQuality = AudioQuality.UNKNOWN,
 ) {
     val stableKey: String
         get() = stableTrackKey(relativePath, displayName, fileSize)

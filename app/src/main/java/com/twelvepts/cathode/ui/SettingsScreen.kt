@@ -1,6 +1,5 @@
 package com.twelvepts.cathode.ui
 
-import android.graphics.Color.parseColor
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -11,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -18,10 +19,10 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artworkUri: Uri?, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     var advanced by remember { mutableStateOf(false) }
-    var accentText by remember(settings.customAccentArgb) {
-        mutableStateOf(settings.customAccentArgb?.let { "#%06X".format(0xFFFFFF and it) } ?: "")
-    }
-    var accentError by remember { mutableStateOf(false) }
+    val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
+    var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
+    var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
+    var accentBlue by remember(settings.customAccentArgb) { mutableFloatStateOf((initialAccent and 0xff) / 255f) }
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
         ArtworkBackdrop(artworkUri, settings.animations)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .22f), CathodeBlack.copy(alpha = .72f)))))
@@ -67,10 +68,19 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
         } else {
             item {
                 SettingSection("Custom accent")
-                OutlinedTextField(accentText,{accentText=it.take(7);accentError=false},Modifier.fillMaxWidth(),label={Text("Hex color")},placeholder={Text("#00E5FF")},isError=accentError,singleLine=true)
+                val preview = Color(accentRed, accentGreen, accentBlue, 1f)
+                Box(
+                    Modifier.size(76.dp).background(preview, CircleShape).align(Alignment.CenterHorizontally),
+                )
+                ColorChannelSlider("Red", accentRed) { accentRed = it }
+                ColorChannelSlider("Green", accentGreen) { accentGreen = it }
+                ColorChannelSlider("Blue", accentBlue) { accentBlue = it }
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Button(onClick={runCatching{parseColor(accentText)}.onSuccess{color->store.update{it.copy(customAccentArgb=color)}}.onFailure{accentError=true}}){Text("Apply")}
-                    TextButton(onClick={accentText="";store.update{it.copy(customAccentArgb=null)}}){Text("Use preset")}
+                    Button(onClick={
+                        val color = android.graphics.Color.rgb((accentRed*255).toInt(),(accentGreen*255).toInt(),(accentBlue*255).toInt())
+                        store.update{it.copy(customAccentArgb=color)}
+                    }){Text("Apply color")}
+                    TextButton(onClick={store.update{it.copy(customAccentArgb=null)}}){Text("Use preset")}
                 }
             }
             item { SettingToggle("Monospace typography","Use the technical Cathode typeface.",settings.monospace){v->store.update{it.copy(monospace=v)}} }
@@ -109,6 +119,15 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
     }
 }
 @Composable private fun SettingSection(title:String){Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)}
+@Composable private fun ColorChannelSlider(label:String,value:Float,onValue:(Float)->Unit){
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = CathodeMuted)
+            Text((value * 255).toInt().toString())
+        }
+        Slider(value,onValue,valueRange=0f..1f)
+    }
+}
 @Composable private fun SettingToggle(title:String,description:String,checked:Boolean,onChecked:(Boolean)->Unit){
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
         Column(Modifier.weight(1f)){Text(title,fontWeight=FontWeight.SemiBold);Text(description,color=CathodeMuted,style=MaterialTheme.typography.labelMedium)}

@@ -2,6 +2,9 @@ package com.twelvepts.cathode
 
 import android.Manifest
 import android.app.DownloadManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -9,6 +12,8 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.media.MediaScannerConnection
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -74,10 +79,13 @@ class MainActivity : ComponentActivity() {
                 .putInt("last_reason", reason)
                 .apply()
             if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                val quality = localUri?.let(::classifyDownloadedAudio) ?: "UNKNOWN"
                 preferences.edit()
                     .putStringSet("completed_ids", preferences.getStringSet("completed_ids", emptySet()).orEmpty() + id.toString())
                     .putString("title_" + id, title)
+                    .putString("quality_" + id, quality)
                     .apply()
+                if (quality == "LOSSY") notifyLossyDownload(id, title)
                 localUri?.let(Uri::parse)?.path?.let { path ->
                     MediaScannerConnection.scanFile(this@MainActivity, arrayOf(path), null, null)
                 }
@@ -86,6 +94,37 @@ class MainActivity : ComponentActivity() {
                     viewModel.rescan()
                 }
             }
+        }
+    }
+
+    private fun classifyDownloadedAudio(uriText: String): String = runCatching {
+        val uri = Uri.parse(uriText)
+        val extractor = MediaExtractor()
+        try {
+            if (uri.scheme == "file") extractor.setDataSource(uri.path!!) else extractor.setDataSource(this, uri, null)
+            val mime = (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+                .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+                ?.getString(MediaFormat.KEY_MIME).orEmpty().lowercase()
+            when {
+                mime.contains("flac") || mime.contains("alac") || mime.contains("raw") -> "LOSSLESS"
+                mime.contains("mpeg") || mime.contains("aac") || mime.contains("opus") || mime.contains("vorbis") -> "LOSSY"
+                else -> "UNKNOWN"
+            }
+        } finally { extractor.release() }
+    }.getOrDefault("UNKNOWN")
+
+    private fun notifyLossyDownload(id: Long, title: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "cathode_quality"
+        manager.createNotificationChannel(NotificationChannel(channelId, "Audio quality alerts", NotificationManager.IMPORTANCE_DEFAULT))
+        val notification = Notification.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_cathode)
+            .setContentTitle("Downloaded audio is not lossless")
+            .setContentText("$title uses a lossy codec despite its filename or source listing.")
+            .setAutoCancel(true)
+            .build()
+        if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            manager.notify((id xor (id ushr 32)).toInt(), notification)
         }
     }
 

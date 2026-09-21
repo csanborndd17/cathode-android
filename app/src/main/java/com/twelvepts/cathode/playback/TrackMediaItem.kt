@@ -21,6 +21,9 @@ fun AudioTrack.toMediaItem(): MediaItem = MediaItem.Builder()
                 putString("cathode_lyrics", lyrics)
                 replayGainDb?.let { putFloat("cathode_replay_gain", it) }
                 hasFlacSeekTable?.let { putBoolean("cathode_flac_seek_table", it) }
+                putString("cathode_audio_quality", audioQuality.name)
+                sampleRateHz?.let { putInt("cathode_sample_rate", it) }
+                bitDepth?.let { putInt("cathode_bit_depth", it) }
             })
             .setIsPlayable(true)
             .build(),

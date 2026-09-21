@@ -4,12 +4,19 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-data class FlacMetadata(val replayGainDb: Float? = null, val hasSeekTable: Boolean = false)
+data class FlacMetadata(
+    val replayGainDb: Float? = null,
+    val hasSeekTable: Boolean = false,
+    val sampleRateHz: Int? = null,
+    val bitDepth: Int? = null,
+)
 
 fun readFlacMetadata(input: InputStream): FlacMetadata {
     if (input.readNBytes(4).decodeToString() != "fLaC") return FlacMetadata()
     var gain: Float? = null
     var seekTable = false
+    var sampleRate: Int? = null
+    var bitDepth: Int? = null
     var last = false
     while (!last) {
         val first = input.read()
@@ -23,6 +30,11 @@ fun readFlacMetadata(input: InputStream): FlacMetadata {
         if (length > 4_194_304) break
         val payload = input.readNBytes(length)
         if (payload.size != length) break
+        if (type == 0 && payload.size >= 18) {
+            sampleRate = ((payload[10].toInt() and 0xff) shl 12) or
+                ((payload[11].toInt() and 0xff) shl 4) or ((payload[12].toInt() and 0xf0) shr 4)
+            bitDepth = ((((payload[12].toInt() and 0x01) shl 4) or ((payload[13].toInt() and 0xf0) shr 4)) + 1)
+        }
         if (type == 3 && length >= 18) seekTable = true
         if (type == 4) {
             val comments = parseVorbisComments(payload)
@@ -30,7 +42,7 @@ fun readFlacMetadata(input: InputStream): FlacMetadata {
                 ?: comments["R128_TRACK_GAIN"]?.toFloatOrNull()?.div(256f)
         }
     }
-    return FlacMetadata(gain, seekTable)
+    return FlacMetadata(gain, seekTable, sampleRate, bitDepth)
 }
 
 private fun parseVorbisComments(payload: ByteArray): Map<String, String> = runCatching {

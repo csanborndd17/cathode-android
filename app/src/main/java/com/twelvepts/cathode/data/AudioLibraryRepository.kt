@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import com.twelvepts.cathode.model.AudioTrack
+import com.twelvepts.cathode.model.AudioQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -71,6 +72,14 @@ class AudioLibraryRepository(private val context: Context) {
                 val flac = if (displayName.endsWith(".flac", true) || cursor.getString(mimeColumn)?.contains("flac", true) == true) {
                     runCatching { context.contentResolver.openInputStream(uri)?.use(::readFlacMetadata) }.getOrNull()
                 } else null
+                val mime = cursor.getString(mimeColumn).orEmpty().lowercase()
+                val quality = when {
+                    flac != null && ((flac.sampleRateHz ?: 0) > 48_000 || (flac.bitDepth ?: 0) > 16) -> AudioQuality.HI_RES
+                    flac != null -> AudioQuality.LOSSLESS
+                    mime.contains("alac") || mime.contains("wav") || mime.contains("aiff") -> AudioQuality.LOSSLESS
+                    mime.contains("mpeg") || mime.contains("mp3") || mime.contains("aac") || mime.contains("opus") || mime.contains("vorbis") -> AudioQuality.LOSSY
+                    else -> AudioQuality.UNKNOWN
+                }
                 result += AudioTrack(
                     id = id,
                     uri = uri,
@@ -91,6 +100,9 @@ class AudioLibraryRepository(private val context: Context) {
                     lyrics = metadata.getString("$key.lyrics", metadata.getString("$legacyKey.lyrics", "")).orEmpty(),
                     replayGainDb = flac?.replayGainDb,
                     hasFlacSeekTable = flac?.hasSeekTable,
+                    sampleRateHz = flac?.sampleRateHz,
+                    bitDepth = flac?.bitDepth,
+                    audioQuality = quality,
                 )
                 }
             }

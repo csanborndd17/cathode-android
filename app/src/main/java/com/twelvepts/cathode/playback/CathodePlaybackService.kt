@@ -149,6 +149,7 @@ class CathodePlaybackService : MediaSessionService() {
                 put("artwork", metadata.artworkUri?.toString().orEmpty())
                 put("lyrics", metadata.extras?.getString("cathode_lyrics").orEmpty())
                 metadata.extras?.takeIf { it.containsKey("cathode_replay_gain") }?.let { put("replayGain", it.getFloat("cathode_replay_gain").toDouble()) }
+                put("quality", metadata.extras?.getString("cathode_audio_quality").orEmpty())
             })
         }
         getSharedPreferences("playback_session", MODE_PRIVATE).edit()
@@ -184,6 +185,7 @@ class CathodePlaybackService : MediaSessionService() {
                                     .setExtras(android.os.Bundle().apply {
                                         putString("cathode_lyrics", value.optString("lyrics"))
                                         if (value.has("replayGain")) putFloat("cathode_replay_gain", value.optDouble("replayGain").toFloat())
+                                        putString("cathode_audio_quality", value.optString("quality", "UNKNOWN"))
                                     })
                                     .setIsPlayable(true)
                                     .build(),

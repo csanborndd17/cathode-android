@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.twelvepts.cathode.model.AudioTrack
+import com.twelvepts.cathode.model.AudioQuality
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +58,7 @@ data class PlaybackState(
     val replayGainEnabled: Boolean = false,
     val transitionFadeEnabled: Boolean = false,
     val transitionFadeSeconds: Int = 3,
+    val audioQuality: AudioQuality = AudioQuality.UNKNOWN,
 )
 
 class PlayerConnection(context: Context) : Player.Listener {
@@ -264,6 +266,9 @@ class PlayerConnection(context: Context) : Player.Listener {
                 replayGainEnabled = playbackPreferences.getBoolean("replay_gain_enabled", false),
                 transitionFadeEnabled = playbackPreferences.getBoolean("transition_fade_enabled", false),
                 transitionFadeSeconds = playbackPreferences.getInt("transition_fade_seconds", 3).coerceIn(1, 12),
+                audioQuality = runCatching {
+                    AudioQuality.valueOf(metadata.extras?.getString("cathode_audio_quality").orEmpty())
+                }.getOrDefault(AudioQuality.UNKNOWN),
             )
         }
     }

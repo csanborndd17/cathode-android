@@ -57,6 +57,7 @@ private data class DownloadSignal(
     val title: String,
     val status: Int,
     val progress: Float?,
+    val quality: String? = null,
 )
 
 private data class DownloadSnapshot(
@@ -185,6 +186,7 @@ fun AcquireScreen() {
                     preferences.edit()
                         .putStringSet("completed_ids", preferences.getStringSet("completed_ids", emptySet()).orEmpty() - id.toString())
                         .remove("title_" + id)
+                        .remove("quality_" + id)
                         .apply()
                     downloads = readDownloadSnapshot(context)
                 },
@@ -447,6 +449,7 @@ private fun DiscoverHub(
                             Text("INSTALLED", color = CathodeCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             Text(download.title, maxLines = 1)
                             Text("Available in your local library", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+                            Text(download.quality ?: "QUALITY UNKNOWN", color = if (download.quality == "LOSSY") MaterialTheme.colorScheme.error else CathodeCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                         IconButton(onClick = { onDismissCompleted(download.id) }) {
                             Icon(Icons.Default.Close, "Dismiss completed download", tint = CathodeMuted)
@@ -608,6 +611,7 @@ private fun readDownloadSnapshot(context: Context): DownloadSnapshot {
                 title = preferences.getString("title_" + id, "Downloaded track").orEmpty(),
                 status = DownloadManager.STATUS_SUCCESSFUL,
                 progress = 1f,
+                quality = preferences.getString("quality_" + id, null),
             )
         },
         failedTitle = preferences.getString("last_title", null).takeIf { lastStatus == DownloadManager.STATUS_FAILED },
