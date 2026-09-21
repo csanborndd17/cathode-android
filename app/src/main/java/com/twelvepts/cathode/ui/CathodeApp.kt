@@ -76,7 +76,12 @@ fun CathodeApp(
     fun playTrack(track: com.twelvepts.cathode.model.AudioTrack) {
         player.play(library.tracks, track)
     }
-    fun selectTab(next: CathodeTab) {
+    fun selectTab(next: CathodeTab, keepLibraryView: Boolean = false) {
+        if (!keepLibraryView && (tab == CathodeTab.Library || next == CathodeTab.Library)) {
+            settingsStore.update {
+                it.copy(libraryCategory = LibraryCategory.SONGS, librarySort = LibrarySort.RECENT)
+            }
+        }
         previousTab = tab
         tab = next
         settingsStore.update { it.copy(lastTab = next.name) }
@@ -185,7 +190,7 @@ fun CathodeApp(
                             onProfile = { scope.launch { drawerState.open() } },
                             onOpenLibrary = { category ->
                                 settingsStore.update { it.copy(libraryCategory = category) }
-                                selectTab(CathodeTab.Library)
+                                selectTab(CathodeTab.Library, keepLibraryView = true)
                             },
                             currentTrackKey = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId,
                             currentIsPlaying = playback.isPlaying,
@@ -218,9 +223,31 @@ fun CathodeApp(
 
     }
 
-    if (showPlayer) NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
-    if (showSettings) SettingsScreen(settings, settingsStore, playback.artworkUri, onClose = { showSettings = false })
-    if (showTransmission) TransmissionLogScreen(library, playback.artworkUri, onClose = { showTransmission = false })
+    val overlayDuration = if (settings.animations) 280 else 0
+    AnimatedVisibility(
+        visible = showPlayer,
+        enter = fadeIn(tween(overlayDuration)) + slideInVertically(tween(overlayDuration)) { it / 7 } + scaleIn(tween(overlayDuration), initialScale = .985f),
+        exit = fadeOut(tween(overlayDuration)) + slideOutVertically(tween(overlayDuration)) { it / 7 } + scaleOut(tween(overlayDuration), targetScale = .985f),
+        label = "now-playing-overlay",
+    ) {
+        NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
+    }
+    AnimatedVisibility(
+        visible = showSettings,
+        enter = fadeIn(tween(overlayDuration)) + slideInHorizontally(tween(overlayDuration)) { it / 6 },
+        exit = fadeOut(tween(overlayDuration)) + slideOutHorizontally(tween(overlayDuration)) { it / 6 },
+        label = "settings-overlay",
+    ) {
+        SettingsScreen(settings, settingsStore, playback.artworkUri, onClose = { showSettings = false })
+    }
+    AnimatedVisibility(
+        visible = showTransmission,
+        enter = fadeIn(tween(overlayDuration)) + slideInHorizontally(tween(overlayDuration)) { it / 6 },
+        exit = fadeOut(tween(overlayDuration)) + slideOutHorizontally(tween(overlayDuration)) { it / 6 },
+        label = "transmission-overlay",
+    ) {
+        TransmissionLogScreen(library, playback.artworkUri, onClose = { showTransmission = false })
+    }
 
     AnimatedVisibility(visible = showStartup, exit = fadeOut(tween(if (settings.animations) 450 else 0))) {
         StartupReveal(logoRevealed)

@@ -58,7 +58,7 @@ fun SignalDust(animations: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "signal-dust")
     val phase by transition.animateFloat(
         0f, 6.2831855f,
-        infiniteRepeatable(tween(if (animations) 18_000 else 1_000_000), RepeatMode.Restart),
+        infiniteRepeatable(tween(if (animations) 42_000 else 1_000_000), RepeatMode.Restart),
         label = "dust-phase",
     )
     Canvas(modifier.fillMaxSize()) {
@@ -69,10 +69,12 @@ fun SignalDust(animations: Boolean, modifier: Modifier = Modifier) {
             val spanY = (size.height - margin * 2f).coerceAtLeast(1f)
             val baseX = margin + (seed * 29f) % spanX
             val baseY = margin + (seed * 13f) % spanY
-            val orbit = phase * (1f + index % 3 * .25f) + index * .71f
-            val x = (baseX + sin(orbit) * (10f + index % 5 * 4f)).coerceIn(0f, size.width)
-            val y = (baseY + cos(orbit) * (16f + index % 6 * 5f)).coerceIn(0f, size.height)
-            val shimmer = .42f + .58f * ((sin(phase + index) + 1f) / 2f)
+            val xPhase = phase * (1 + index % 3) + index * .71f
+            val yPhase = phase * (1 + index % 4) + index * 1.13f
+            val x = (baseX + sin(xPhase) * (10f + index % 5 * 4f)).coerceIn(0f, size.width)
+            val y = (baseY + cos(yPhase) * (16f + index % 6 * 5f)).coerceIn(0f, size.height)
+            val shimmerPhase = phase * (1 + index % 2) + index * .89f
+            val shimmer = .42f + .58f * ((sin(shimmerPhase) + 1f) / 2f)
             drawCircle(
                 color = if (index % 5 == 0) CathodeCyan.copy(alpha = .30f * shimmer) else Color.White.copy(alpha = .14f * shimmer),
                 radius = 7.5f + index % 8,

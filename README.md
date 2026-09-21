@@ -44,3 +44,6 @@ The planned desktop edition will use a sibling repository, `csanborndd17/cathode
 
 Every user-facing update should record what changed, why, how Android implements it, and the exact desktop equivalent.
 
+## Planned library migration
+
+Cathode will eventually accept a Spotify, YouTube, or other supported playlist link, collect its track and artist names through authorized public metadata or user-approved account access, and prepare searches on the selected Discover source. It will not scrape private playlists, bypass service authentication, or automatically download copyrighted catalogs.

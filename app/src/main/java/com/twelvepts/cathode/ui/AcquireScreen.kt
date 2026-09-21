@@ -13,6 +13,8 @@ import android.webkit.DownloadListener
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -39,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.twelvepts.cathode.BuildConfig
 
 private data class DiscoverSource(
     val id: String,
@@ -89,6 +92,20 @@ fun AcquireScreen() {
     var retryKey by remember { mutableIntStateOf(0) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loadingProgress by remember { mutableIntStateOf(0) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    fun closeSource() {
+        webView?.apply {
+            stopLoading()
+            loadUrl("about:blank")
+            clearHistory()
+            removeAllViews()
+            destroy()
+        }
+        webView = null
+        loadingProgress = 0
+        loadError = null
+        selectedSource = null
+    }
 
     DisposableEffect(connectivity) {
         val callback = object : ConnectivityManager.NetworkCallback() {
@@ -104,10 +121,7 @@ fun AcquireScreen() {
     }
 
     BackHandler(enabled = selectedSource != null) {
-        if (webView?.canGoBack() == true) webView?.goBack() else {
-            loadingProgress = 0
-            selectedSource = null
-        }
+        if (webView?.canGoBack() == true) webView?.goBack() else closeSource()
     }
 
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
@@ -120,10 +134,9 @@ fun AcquireScreen() {
                     Modifier.fillMaxWidth().background(CathodeBlack.copy(alpha = .88f)).padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        loadingProgress = 0
-                        selectedSource = null
-                    }) { Icon(Icons.Default.ArrowBack, "Back to Discover sources", tint = CathodeCyan) }
+                    IconButton(onClick = ::closeSource) {
+                        Icon(Icons.Default.ArrowBack, "Back to Discover sources", tint = CathodeCyan)
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(source.name, fontWeight = FontWeight.Bold)
                         Text(source.badge, color = CathodeCyan, style = MaterialTheme.typography.labelSmall)
@@ -151,15 +164,31 @@ fun AcquireScreen() {
                                         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                         mediaPlaybackRequiresUserGesture = true
                                         setSupportMultipleWindows(false)
-                                        userAgentString = "$userAgentString Cathode/0.7.4"
+                                        userAgentString = userAgentString + " Cathode/" + BuildConfig.VERSION_NAME
                                     }
                                     CookieManager.getInstance().setAcceptCookie(true)
                                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
                                     webViewClient = object : WebViewClient() {
+                                        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                            loadError = null
+                                            loadingProgress = maxOf(loadingProgress, 1)
+                                        }
                                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                             return if (request.url.scheme == "https") false else {
                                                 Toast.makeText(webContext, "Cathode blocked non-HTTPS navigation", Toast.LENGTH_SHORT).show()
                                                 true
+                                            }
+                                        }
+                                        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                                            if (request.isForMainFrame) {
+                                                loadError = error.description?.toString() ?: "The source could not be reached."
+                                                loadingProgress = 100
+                                            }
+                                        }
+                                        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                                            if (request.isForMainFrame && errorResponse.statusCode >= 400) {
+                                                loadError = "The source returned HTTP " + errorResponse.statusCode + "."
+                                                loadingProgress = 100
                                             }
                                         }
                                     }
@@ -173,18 +202,36 @@ fun AcquireScreen() {
                             update = { if (retryKey > 0 && it.url.isNullOrBlank()) it.loadUrl(source.url) },
                             modifier = Modifier.fillMaxSize(),
                         )
-                        if (loadingProgress in 0..99) CircularProgressIndicator(
+                        if (loadingProgress in 1..99 && loadError == null) CircularProgressIndicator(
                             progress = { loadingProgress / 100f },
                             color = CathodeCyan,
                             modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
                         )
+                        loadError?.let { message ->
+                            Surface(
+                                color = CathodePanel.copy(alpha = .96f),
+                                shape = MaterialTheme.shapes.large,
+                                modifier = Modifier.align(Alignment.Center).padding(26.dp),
+                            ) {
+                                Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("SOURCE UNAVAILABLE", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                                    Text(message, color = CathodeMuted, modifier = Modifier.padding(vertical = 10.dp))
+                                    Button(onClick = {
+                                        loadError = null
+                                        loadingProgress = 1
+                                        webView?.loadUrl(source.url)
+                                    }) { Text("Retry") }
+                                    TextButton(onClick = ::closeSource) { Text("Back to sources") }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    DisposableEffect(selectedSource) {
+    DisposableEffect(Unit) {
         onDispose {
             webView?.apply { stopLoading(); loadUrl("about:blank"); clearHistory(); removeAllViews(); destroy() }
             webView = null
