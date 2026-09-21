@@ -3,6 +3,8 @@ package com.twelvepts.cathode.ui
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -24,6 +26,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowBack
@@ -32,6 +38,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,6 +76,10 @@ private data class DiscoverSource(
     val downloadFolder: String,
     val icon: ImageVector,
 )
+
+private data class ImportedTrack(val artist: String, val title: String) {
+    val query: String get() = listOf(artist, title).filter(String::isNotBlank).joinToString(" ")
+}
 
 private val discoverSources = listOf(
     DiscoverSource(
@@ -110,6 +121,10 @@ fun AcquireScreen() {
     var loadingProgress by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var downloads by remember { mutableStateOf(DownloadSnapshot()) }
+    var showPlaylistImport by remember { mutableStateOf(false) }
+    var importText by remember { mutableStateOf("") }
+    var importedTracks by remember { mutableStateOf<List<ImportedTrack>>(emptyList()) }
+    var importSource by remember { mutableStateOf(discoverSources.first()) }
     fun closeSource() {
         webView?.apply {
             stopLoading()
@@ -172,6 +187,7 @@ fun AcquireScreen() {
                         .apply()
                     downloads = readDownloadSnapshot(context)
                 },
+                onImportPlaylist = { showPlaylistImport = true },
             )
         } else {
             val source = selectedSource!!
@@ -277,6 +293,47 @@ fun AcquireScreen() {
         }
     }
 
+    if (showPlaylistImport) AlertDialog(
+        onDismissRequest = { showPlaylistImport = false },
+        title = { Text("Playlist converter") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Paste an exported track list. Use one track per line as Artist - Title, Title - Artist, or a plain search phrase.", color = CathodeMuted)
+                OutlinedTextField(
+                    value = importText,
+                    onValueChange = { importText = it },
+                    label = { Text("Playlist text") },
+                    minLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = { importedTracks = parsePlaylistText(importText) }, enabled = importText.isNotBlank()) {
+                    Text("Parse tracks")
+                }
+                Text("Search source", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(discoverSources.size) { index ->
+                        val source = discoverSources[index]
+                        FilterChip(selected = source == importSource, onClick = { importSource = source }, label = { Text(source.name) })
+                    }
+                }
+                importedTracks.forEachIndexed { index, track ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${index + 1}. ${track.query}", Modifier.weight(1f), maxLines = 2)
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Cathode track search", track.query))
+                            showPlaylistImport = false
+                            selectedSource = importSource
+                            Toast.makeText(context, "Search copied. Paste it into ${importSource.name}.", Toast.LENGTH_LONG).show()
+                        }) { Text("Search") }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { showPlaylistImport = false }) { Text("Close") } },
+    )
+
     DisposableEffect(Unit) {
         onDispose {
             webView?.apply { stopLoading(); loadUrl("about:blank"); clearHistory(); removeAllViews(); destroy() }
@@ -293,6 +350,7 @@ private fun DiscoverHub(
     onCancelDownload: (Long) -> Unit,
     onDismissFailure: () -> Unit,
     onDismissCompleted: (Long) -> Unit,
+    onImportPlaylist: () -> Unit,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp),
@@ -312,6 +370,17 @@ private fun DiscoverHub(
                     Column(Modifier.padding(start = 12.dp)) {
                         Text("NO SIGNAL", color = CathodeCyan, fontWeight = FontWeight.Bold)
                         Text("Connect to Wi-Fi or mobile data before opening a source.", color = CathodeMuted)
+                    }
+                }
+            }
+        }
+        item {
+            Card(Modifier.fillMaxWidth().clickable(onClick = onImportPlaylist)) {
+                Row(Modifier.fillMaxWidth().padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.PlaylistAdd, null, tint = CathodeCyan, modifier = Modifier.size(34.dp))
+                    Column(Modifier.padding(start = 14.dp)) {
+                        Text("CONVERT A PLAYLIST", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                        Text("Paste a track list, review it, then search each song through your selected source.", color = CathodeMuted)
                     }
                 }
             }
@@ -384,6 +453,22 @@ private fun DiscoverHub(
         }
     }
 }
+
+private fun parsePlaylistText(input: String): List<ImportedTrack> = input.lineSequence()
+    .map(String::trim)
+    .filter { it.isNotBlank() && !it.startsWith("http://") && !it.startsWith("https://") }
+    .map { line ->
+        val cleaned = line.replace(Regex("^\\s*\\d+[.)]\\s*"), "").trim()
+        val separator = listOf(" — ", " – ", " - ", " | ", "\t").firstOrNull(cleaned::contains)
+        if (separator == null) ImportedTrack("", cleaned)
+        else {
+            val parts = cleaned.split(separator, limit = 2)
+            ImportedTrack(parts[0].trim(), parts.getOrElse(1) { "" }.trim())
+        }
+    }
+    .filter { it.query.isNotBlank() }
+    .distinctBy { it.query.lowercase() }
+    .toList()
 
 @Composable
 private fun SourceCard(source: DiscoverSource, index: Int, online: Boolean, onOpen: (DiscoverSource) -> Unit) {

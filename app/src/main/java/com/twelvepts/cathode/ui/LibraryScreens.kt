@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.provider.MediaStore
+import android.media.MediaMetadataRetriever
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
@@ -67,6 +69,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +94,8 @@ import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.model.AudioTrack
 import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
 typealias MetadataResetter = (AudioTrack) -> Unit
@@ -642,6 +647,7 @@ private fun TrackRow(
     var editing by remember(track.stableKey) { mutableStateOf(false) }
     var choosingPlaylist by remember(track.stableKey) { mutableStateOf(false) }
     var moreMenu by remember(track.stableKey) { mutableStateOf(false) }
+    var diagnostics by remember(track.stableKey) { mutableStateOf(false) }
     val playNext = LocalPlayNext.current
     val addToQueue = LocalAddToQueue.current
     Row(
@@ -682,6 +688,11 @@ private fun TrackRow(
                     leadingIcon = { Icon(Icons.Default.Edit, null) },
                     onClick = { editing = true; moreMenu = false },
                 )
+                DropdownMenuItem(
+                    text = { Text("Audio diagnostics") },
+                    leadingIcon = { Icon(Icons.Default.Equalizer, null) },
+                    onClick = { diagnostics = true; moreMenu = false },
+                )
             }
         }
     }
@@ -696,6 +707,88 @@ private fun TrackRow(
         } },
         confirmButton = {}, dismissButton = { TextButton(onClick = { choosingPlaylist = false }) { Text("Cancel") } },
     )
+    if (diagnostics) AudioDiagnosticsDialog(track) { diagnostics = false }
+}
+
+private data class AudioDiagnostics(
+    val mimeType: String,
+    val duration: String,
+    val bitrate: String,
+    val sampleRate: String,
+    val bitDepth: String,
+    val channels: String,
+    val fileSize: String,
+    val warning: String?,
+)
+
+@Composable
+private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var result by remember(track.stableKey) { mutableStateOf<AudioDiagnostics?>(null) }
+    LaunchedEffect(track.stableKey) {
+        result = withContext(Dispatchers.IO) {
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, track.uri)
+                    val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: track.durationMs
+                    val bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()
+                    val sampleRate = if (Build.VERSION.SDK_INT >= 31) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE) else null
+                    val bits = if (Build.VERSION.SDK_INT >= 31) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE) else null
+                    val channels = if (Build.VERSION.SDK_INT >= 31) retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_NUM_TRACKS) else null
+                    AudioDiagnostics(
+                        mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE) ?: track.mimeType ?: "Unknown",
+                        duration = if (durationMs > 0) formatDiagnosticDuration(durationMs) else "Unknown",
+                        bitrate = bitrate?.let { "${it / 1000} kbps" } ?: "Unknown",
+                        sampleRate = sampleRate?.toLongOrNull()?.let { "${it / 1000f} kHz" } ?: "Unknown",
+                        bitDepth = bits?.let { "$it-bit" } ?: "Unknown",
+                        channels = channels ?: "Unknown",
+                        fileSize = "${track.fileSize / 1_048_576f} MiB",
+                        warning = if (durationMs <= 0) "No valid duration was found. This usually prevents reliable scrubbing." else null,
+                    )
+                } finally { retriever.release() }
+            }.getOrElse {
+                AudioDiagnostics(track.mimeType ?: "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "${track.fileSize / 1_048_576f} MiB", "Android could not read this file's container metadata: ${it.message}")
+            }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Audio diagnostics") },
+        text = {
+            val value = result
+            if (value == null) CircularProgressIndicator(color = CathodeCyan)
+            else Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(track.displayName, fontWeight = FontWeight.Bold)
+                DiagnosticRow("Format", value.mimeType)
+                DiagnosticRow("Duration", value.duration)
+                DiagnosticRow("Sample rate", value.sampleRate)
+                DiagnosticRow("Bit depth", value.bitDepth)
+                DiagnosticRow("Bitrate", value.bitrate)
+                DiagnosticRow("Tracks", value.channels)
+                DiagnosticRow("File size", value.fileSize)
+                value.warning?.let { Text(it, color = CathodeError, modifier = Modifier.padding(top = 8.dp)) }
+                Text("A valid duration does not guarantee a valid FLAC seek table. If this track still cannot scrub, its container likely needs a lossless remux.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = CathodeMuted)
+        Text(value)
+    }
+}
+
+private fun formatDiagnosticDuration(milliseconds: Long): String {
+    val totalSeconds = milliseconds / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
 @Composable
