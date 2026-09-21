@@ -78,11 +78,11 @@ private fun TransmissionYearContent(
     val uniqueTracks = signal.tracks.count { it.playCount > 0 || it.listenedMs > 0 }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 18.dp),
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Close Transmission Log", tint = CathodeCyan) }
                 Column(Modifier.weight(1f)) {
                     Text("TRANSMISSION LOG // $year", color = CathodeCyan, fontWeight = FontWeight.Bold)
