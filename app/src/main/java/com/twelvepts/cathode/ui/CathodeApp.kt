@@ -115,6 +115,7 @@ fun CathodeApp(
     ) {
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = false,
         drawerContent = {
             ProfileDrawerContent(
                 settings = settings,
@@ -207,8 +208,10 @@ fun CathodeApp(
                             onReset = viewModel::resetMetadata,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onCreatePlaylist = viewModel::createPlaylist,
+                            onCreatePlaylistWithTracks = viewModel::createPlaylistWithTracks,
                             onDeletePlaylist = viewModel::deletePlaylist,
                             onAddToPlaylist = viewModel::addToPlaylist,
+                            onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onProfile = { scope.launch { drawerState.open() } },
                             settings = settings,

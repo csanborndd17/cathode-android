@@ -79,6 +79,17 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         refreshCollections()
     }
 
+    fun createPlaylistWithTracks(name: String, tracks: List<AudioTrack>) {
+        val playlistId = database.createPlaylist(name)
+        tracks.forEach { database.addToPlaylist(playlistId, it.stableKey) }
+        refreshCollections()
+    }
+
+    fun addTracksToPlaylist(playlistId: Long, tracks: List<AudioTrack>) {
+        tracks.forEach { database.addToPlaylist(playlistId, it.stableKey) }
+        refreshCollections()
+    }
+
     fun deletePlaylist(id: Long) {
         database.deletePlaylist(id)
         refreshCollections()

@@ -197,6 +197,13 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                     isPlaying = state.isPlaying,
                     onSeek = player::seekTo,
                 )
+                if (!state.isSeekable) {
+                    Text(
+                        "This file has no usable seek map. Playback works, but scrubbing may be unavailable.",
+                        color = CathodeMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(formatDuration(state.positionMs), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                     Text(
@@ -278,6 +285,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
         title = { Text("Sleep timer") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Cathode will keep playing in the background, then pause automatically after the selected time.", color = CathodeMuted)
                 val remaining = (state.sleepTimerEndEpochMs - System.currentTimeMillis()).coerceAtLeast(0)
                 if (remaining > 0) Text("Pausing in about " + ((remaining + 59_999) / 60_000) + " minutes.", color = CathodeCyan)
                 listOf(15, 30, 45, 60, 90).forEach { minutes ->

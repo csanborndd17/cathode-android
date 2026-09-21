@@ -1,6 +1,10 @@
 package com.twelvepts.cathode.ui
 
+import android.app.Activity
 import android.content.Intent
+import android.os.Build
+import android.provider.MediaStore
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,6 +13,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -285,8 +290,10 @@ fun LibraryScreen(
     onReset: MetadataResetter,
     onToggleFavorite: FavoriteToggler,
     onCreatePlaylist: (String) -> Unit,
+    onCreatePlaylistWithTracks: (String, List<AudioTrack>) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
     onAddToPlaylist: PlaylistAdder,
+    onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onProfile: () -> Unit,
     settings: CathodeSettings,
@@ -299,6 +306,19 @@ fun LibraryScreen(
     var sortMenu by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     var libraryQuery by remember { mutableStateOf("") }
+    var selectedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var choosingBulkPlaylist by remember { mutableStateOf(false) }
+    var creatingBulkPlaylist by remember { mutableStateOf(false) }
+    var bulkPlaylistName by remember { mutableStateOf("") }
+    var confirmingDelete by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            selectedKeys = emptySet()
+            onRescan()
+        }
+    }
     val filteredTracks = remember(state.tracks, libraryQuery) {
         if (libraryQuery.isBlank()) state.tracks else state.tracks.filter {
             it.title.contains(libraryQuery, true) || it.artist.contains(libraryQuery, true) ||
@@ -325,7 +345,8 @@ fun LibraryScreen(
     }
     val detail = groups.firstOrNull { it.key == selectedGroup }
     val detailPlaylistId = detail?.key?.removePrefix("playlist:")?.toLongOrNull()
-    BackHandler(enabled = detail != null) { selectedGroup = null }
+    BackHandler(enabled = selectedKeys.isNotEmpty()) { selectedKeys = emptySet() }
+    BackHandler(enabled = selectedKeys.isEmpty() && detail != null) { selectedGroup = null }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -350,6 +371,20 @@ fun LibraryScreen(
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search library", tint = CathodeCyan) }
             IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan) }
         }
+        if (selectedKeys.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp).background(CathodePanel).padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("${selectedKeys.size} selected", Modifier.weight(1f), color = CathodeCyan, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { choosingBulkPlaylist = true }) {
+                    Icon(Icons.Default.PlaylistAdd, "Add selected tracks to playlist", tint = CathodeCyan)
+                }
+                IconButton(onClick = { confirmingDelete = true }) {
+                    Icon(Icons.Default.Delete, "Delete selected files from device", tint = CathodeError)
+                }
+            }
+        }
         if (searching && detail == null) OutlinedTextField(
             value = libraryQuery, onValueChange = { libraryQuery = it }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             placeholder = { Text("Search songs, artists, albums, and tags") }, singleLine = true,
@@ -367,6 +402,9 @@ fun LibraryScreen(
                         track.stableKey in state.favoriteKeys,{onToggleFavorite(track)},
                         state.playlists,{ id -> onAddToPlaylist(id,track) },
                         if (detailPlaylistId != null) ({ onRemoveFromPlaylist(detailPlaylistId, track) }) else null,
+                        selected = track.stableKey in selectedKeys,
+                        onLongClick = { selectedKeys = selectedKeys + track.stableKey },
+                        onSelectionClick = if (selectedKeys.isNotEmpty()) ({ selectedKeys = selectedKeys.toggle(track.stableKey) }) else null,
                     )
                 }
                 if (detail.tracks.isEmpty()) item { MessagePanel("Empty playlist", "Add songs using the playlist button beside any track.", CathodeMuted) }
@@ -408,7 +446,10 @@ fun LibraryScreen(
                     else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(directTracks, key = AudioTrack::stableKey) { track ->
                             TrackRow(track,onPlay,onEdit,onReset,false,null,track.stableKey in state.favoriteKeys,
-                                {onToggleFavorite(track)},state.playlists,{ id -> onAddToPlaylist(id,track) })
+                                {onToggleFavorite(track)},state.playlists,{ id -> onAddToPlaylist(id,track) },
+                                selected = track.stableKey in selectedKeys,
+                                onLongClick = { selectedKeys = selectedKeys + track.stableKey },
+                                onSelectionClick = if (selectedKeys.isNotEmpty()) ({ selectedKeys = selectedKeys.toggle(track.stableKey) }) else null)
                         }
                     }
                 } else if (groups.isEmpty()) {
@@ -437,7 +478,62 @@ fun LibraryScreen(
         }) { Text("Create") } },
         dismissButton = { TextButton(onClick = { creatingPlaylist = false }) { Text("Cancel") } },
     )
+
+    if (choosingBulkPlaylist) AlertDialog(
+        onDismissRequest = { choosingBulkPlaylist = false },
+        title = { Text("Add ${selectedKeys.size} tracks to playlist") },
+        text = { Column {
+            TextButton(onClick = { choosingBulkPlaylist = false; creatingBulkPlaylist = true }) {
+                Icon(Icons.Default.Add, null)
+                Text(" Create new playlist")
+            }
+            state.playlists.forEach { playlist ->
+                TextButton(onClick = {
+                    onAddTracksToPlaylist(playlist.id, selectedTracks)
+                    selectedKeys = emptySet()
+                    choosingBulkPlaylist = false
+                }) { Text("${playlist.name} · ${playlist.trackCount}") }
+            }
+        } },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { choosingBulkPlaylist = false }) { Text("Cancel") } },
+    )
+
+    if (creatingBulkPlaylist) AlertDialog(
+        onDismissRequest = { creatingBulkPlaylist = false },
+        title = { Text("New playlist") },
+        text = { OutlinedTextField(bulkPlaylistName, { bulkPlaylistName = it }, label = { Text("Playlist name") }, singleLine = true) },
+        confirmButton = { TextButton(onClick = {
+            if (bulkPlaylistName.isNotBlank()) {
+                onCreatePlaylistWithTracks(bulkPlaylistName, selectedTracks)
+                selectedKeys = emptySet()
+            }
+            bulkPlaylistName = ""
+            creatingBulkPlaylist = false
+        }) { Text("Create and add") } },
+        dismissButton = { TextButton(onClick = { creatingBulkPlaylist = false }) { Text("Cancel") } },
+    )
+
+    if (confirmingDelete) AlertDialog(
+        onDismissRequest = { confirmingDelete = false },
+        title = { Text("Delete ${selectedKeys.size} files from device?") },
+        text = { Text("This permanently removes the selected audio files from device storage, not just from Cathode. This cannot be undone.") },
+        confirmButton = { TextButton(onClick = {
+            confirmingDelete = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val request = MediaStore.createDeleteRequest(context.contentResolver, selectedTracks.map(AudioTrack::uri))
+                deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+            } else {
+                selectedTracks.forEach { runCatching { context.contentResolver.delete(it.uri, null, null) } }
+                selectedKeys = emptySet()
+                onRescan()
+            }
+        }) { Text("Delete permanently", color = CathodeError) } },
+        dismissButton = { TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") } },
+    )
 }
+
+private fun Set<String>.toggle(key: String): Set<String> = if (key in this) this - key else this + key
 
 private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
 
@@ -524,6 +620,7 @@ fun SearchScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackRow(
     track: AudioTrack, onPlay: (AudioTrack) -> Unit, onEdit: MetadataEditor, onReset: MetadataResetter,
@@ -531,13 +628,25 @@ private fun TrackRow(
     favorite: Boolean = false, onToggleFavorite: (() -> Unit)? = null,
     playlists: List<PlaylistSummary> = emptyList(), onAddToPlaylist: ((Long) -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onSelectionClick: (() -> Unit)? = null,
 ) {
     var editing by remember(track.stableKey) { mutableStateOf(false) }
     var choosingPlaylist by remember(track.stableKey) { mutableStateOf(false) }
     var moreMenu by remember(track.stableKey) { mutableStateOf(false) }
     val playNext = LocalPlayNext.current
     val addToQueue = LocalAddToQueue.current
-    Row(Modifier.fillMaxWidth().clickable { onPlay(track) }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(if (selected) CathodeCyan.copy(alpha = .16f) else Color.Transparent)
+            .combinedClickable(
+                onClick = { if (onSelectionClick != null) onSelectionClick() else onPlay(track) },
+                onLongClick = onLongClick,
+            )
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         AsyncImage(track.artworkUri, "${track.album} cover", Modifier.size(52.dp).background(CathodePanel), contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
