@@ -67,9 +67,13 @@ class AudioLibraryRepository(private val context: Context) {
                 val sourceTitle = cursor.getString(titleColumn).orUnknown(displayName.substringBeforeLast('.').ifBlank { "Unknown track" })
                 val sourceArtist = cursor.getString(artistColumn).orUnknown("Unknown artist")
                 val sourceAlbum = cursor.getString(albumColumn).orUnknown("Unknown album")
+                val uri = ContentUris.withAppendedId(collection, id)
+                val flac = if (displayName.endsWith(".flac", true) || cursor.getString(mimeColumn)?.contains("flac", true) == true) {
+                    runCatching { context.contentResolver.openInputStream(uri)?.use(::readFlacMetadata) }.getOrNull()
+                } else null
                 result += AudioTrack(
                     id = id,
-                    uri = ContentUris.withAppendedId(collection, id),
+                    uri = uri,
                     title = metadata.getString("$key.title", metadata.getString("$legacyKey.title", sourceTitle)).orUnknown(sourceTitle),
                     artist = metadata.getString("$key.artist", metadata.getString("$legacyKey.artist", sourceArtist)).orUnknown(sourceArtist),
                     album = metadata.getString("$key.album", metadata.getString("$legacyKey.album", sourceAlbum)).orUnknown(sourceAlbum),
@@ -84,6 +88,9 @@ class AudioLibraryRepository(private val context: Context) {
                     dateAddedSeconds = cursor.getLong(dateAddedColumn).coerceAtLeast(0),
                     tags = metadata.getString("$key.tags", metadata.getString("$legacyKey.tags", "")).orEmpty(),
                     customArtworkUri = metadata.getString("$key.artwork", metadata.getString("$legacyKey.artwork", null)),
+                    lyrics = metadata.getString("$key.lyrics", metadata.getString("$legacyKey.lyrics", "")).orEmpty(),
+                    replayGainDb = flac?.replayGainDb,
+                    hasFlacSeekTable = flac?.hasSeekTable,
                 )
                 }
             }
@@ -98,6 +105,7 @@ class AudioLibraryRepository(private val context: Context) {
         album: String,
         tags: String,
         customArtworkUri: String?,
+        lyrics: String,
     ): AudioTrack {
         val cleanTitle = title.trim().ifEmpty { track.title }
         val cleanArtist = artist.trim().ifEmpty { track.artist }
@@ -115,6 +123,7 @@ class AudioLibraryRepository(private val context: Context) {
             putString("${track.stableKey}.tags", cleanTags)
             if (customArtworkUri.isNullOrBlank()) remove("${track.stableKey}.artwork")
             else putString("${track.stableKey}.artwork", customArtworkUri)
+            putString("${track.stableKey}.lyrics", lyrics.trim())
         }.apply()
 
         return track.copy(
@@ -123,12 +132,13 @@ class AudioLibraryRepository(private val context: Context) {
             album = cleanAlbum,
             tags = cleanTags,
             customArtworkUri = customArtworkUri?.takeIf(String::isNotBlank),
+            lyrics = lyrics.trim(),
         )
     }
 
     fun clearMetadata(track: AudioTrack) {
         metadata.edit().apply {
-            listOf("title", "artist", "album", "tags", "artwork").forEach { field ->
+            listOf("title", "artist", "album", "tags", "artwork", "lyrics").forEach { field ->
                 remove("${track.stableKey}.$field")
                 remove("${track.id}.$field")
             }

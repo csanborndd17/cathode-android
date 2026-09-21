@@ -52,6 +52,11 @@ data class PlaybackState(
     val sleepTimerEndEpochMs: Long = 0,
     val sleepTimerPresetsSeconds: List<Long> = emptyList(),
     val playbackError: String? = null,
+    val lyrics: String = "",
+    val replayGainDb: Float? = null,
+    val replayGainEnabled: Boolean = false,
+    val transitionFadeEnabled: Boolean = false,
+    val transitionFadeSeconds: Int = 3,
 )
 
 class PlayerConnection(context: Context) : Player.Listener {
@@ -160,6 +165,27 @@ class PlayerConnection(context: Context) : Player.Listener {
 
     fun cancelSleepTimer() = setSleepTimer(0)
 
+    fun setReplayGainEnabled(enabled: Boolean) {
+        playbackPreferences.edit().putBoolean("replay_gain_enabled", enabled).apply()
+        controller?.let(::applyReplayGain)
+        publishState()
+    }
+
+    fun setTransitionFade(enabled: Boolean, seconds: Int = _state.value.transitionFadeSeconds) {
+        playbackPreferences.edit()
+            .putBoolean("transition_fade_enabled", enabled)
+            .putInt("transition_fade_seconds", seconds.coerceIn(1, 12))
+            .apply()
+        publishState()
+    }
+
+    private fun applyReplayGain(player: Player) {
+        val enabled = playbackPreferences.getBoolean("replay_gain_enabled", false)
+        val extras = player.mediaMetadata.extras
+        val gain = if (extras?.containsKey("cathode_replay_gain") == true) extras.getFloat("cathode_replay_gain") else null
+        player.volume = if (enabled && gain != null) Math.pow(10.0, gain.toDouble() / 20.0).toFloat().coerceIn(0f, 1f) else 1f
+    }
+
     fun setEqualizerEnabled(enabled: Boolean) {
         equalizer?.enabled = enabled
         bassBoost?.enabled = enabled
@@ -233,6 +259,11 @@ class PlayerConnection(context: Context) : Player.Listener {
                 sleepTimerPresetsSeconds = playbackPreferences.getStringSet("sleep_presets", emptySet()).orEmpty()
                     .mapNotNull(String::toLongOrNull).filter { it > 0 }.sorted(),
                 playbackError = playbackError,
+                lyrics = metadata.extras?.getString("cathode_lyrics").orEmpty(),
+                replayGainDb = metadata.extras?.takeIf { it.containsKey("cathode_replay_gain") }?.getFloat("cathode_replay_gain"),
+                replayGainEnabled = playbackPreferences.getBoolean("replay_gain_enabled", false),
+                transitionFadeEnabled = playbackPreferences.getBoolean("transition_fade_enabled", false),
+                transitionFadeSeconds = playbackPreferences.getInt("transition_fade_seconds", 3).coerceIn(1, 12),
             )
         }
     }
@@ -244,6 +275,7 @@ class PlayerConnection(context: Context) : Player.Listener {
     }
     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
         playbackError = null
+        controller?.let(::applyReplayGain)
         publishState()
     }
     override fun onAudioSessionIdChanged(audioSessionId: Int) { attachAudioLab(audioSessionId) }

@@ -97,7 +97,7 @@ import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
+typealias MetadataEditor = (AudioTrack, String, String, String, String, String?, String) -> Unit
 typealias MetadataResetter = (AudioTrack) -> Unit
 typealias FavoriteToggler = (AudioTrack) -> Unit
 typealias PlaylistAdder = (Long, AudioTrack) -> Unit
@@ -696,8 +696,8 @@ private fun TrackRow(
             }
         }
     }
-    if (editing) MetadataDialog(track,{ editing = false },{ onReset(track); editing = false }) { title,artist,album,tags,artworkUri ->
-        onEdit(track,title,artist,album,tags,artworkUri); editing = false
+    if (editing) MetadataDialog(track,{ editing = false },{ onReset(track); editing = false }) { title,artist,album,tags,artworkUri,lyrics ->
+        onEdit(track,title,artist,album,tags,artworkUri,lyrics); editing = false
     }
     if (choosingPlaylist) AlertDialog(
         onDismissRequest = { choosingPlaylist = false }, title = { Text("Add to playlist") },
@@ -718,6 +718,8 @@ private data class AudioDiagnostics(
     val bitDepth: String,
     val channels: String,
     val fileSize: String,
+    val replayGain: String,
+    val seekTable: String,
     val warning: String?,
 )
 
@@ -744,11 +746,13 @@ private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
                         bitDepth = bits?.let { "$it-bit" } ?: "Unknown",
                         channels = channels ?: "Unknown",
                         fileSize = "${track.fileSize / 1_048_576f} MiB",
+                        replayGain = track.replayGainDb?.let { "%+.2f dB".format(it) } ?: "Not tagged",
+                        seekTable = track.hasFlacSeekTable?.let { if (it) "Present" else "Missing" } ?: "Not applicable",
                         warning = if (durationMs <= 0) "No valid duration was found. This usually prevents reliable scrubbing." else null,
                     )
                 } finally { retriever.release() }
             }.getOrElse {
-                AudioDiagnostics(track.mimeType ?: "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "${track.fileSize / 1_048_576f} MiB", "Android could not read this file's container metadata: ${it.message}")
+                AudioDiagnostics(track.mimeType ?: "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "${track.fileSize / 1_048_576f} MiB", track.replayGainDb?.let { value -> "%+.2f dB".format(value) } ?: "Not tagged", track.hasFlacSeekTable?.let { value -> if (value) "Present" else "Missing" } ?: "Not applicable", "Android could not read this file's container metadata: ${it.message}")
             }
         }
     }
@@ -767,6 +771,8 @@ private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
                 DiagnosticRow("Bitrate", value.bitrate)
                 DiagnosticRow("Tracks", value.channels)
                 DiagnosticRow("File size", value.fileSize)
+                DiagnosticRow("ReplayGain", value.replayGain)
+                DiagnosticRow("FLAC seek table", value.seekTable)
                 value.warning?.let { Text(it, color = CathodeError, modifier = Modifier.padding(top = 8.dp)) }
                 Text("A valid duration does not guarantee a valid FLAC seek table. If this track still cannot scrub, its container likely needs a lossless remux.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
             }
@@ -796,7 +802,7 @@ private fun MetadataDialog(
     track: AudioTrack,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
-    onSave: (String, String, String, String, String?) -> Unit,
+    onSave: (String, String, String, String, String?, String) -> Unit,
 ) {
     val context = LocalContext.current
     var title by remember(track.id) { mutableStateOf(track.title) }
@@ -804,6 +810,7 @@ private fun MetadataDialog(
     var album by remember(track.id) { mutableStateOf(track.album) }
     var tags by remember(track.id) { mutableStateOf(track.tags) }
     var artworkUri by remember(track.id) { mutableStateOf(track.customArtworkUri) }
+    var lyrics by remember(track.id) { mutableStateOf(track.lyrics) }
     val artworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -842,6 +849,13 @@ private fun MetadataDialog(
                     label = { Text("Search tags") },
                     supportingText = { Text("Separate tags with commas, e.g. twenty one pilots, demo") },
                 )
+                OutlinedTextField(
+                    lyrics,
+                    { lyrics = it },
+                    label = { Text("Lyrics") },
+                    supportingText = { Text("Plain text or timestamped LRC lines are stored locally in Cathode.") },
+                    minLines = 5,
+                )
                 Text(
                     buildString {
                         append(track.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO")
@@ -861,7 +875,7 @@ private fun MetadataDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags, artworkUri) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album, tags, artworkUri, lyrics) }) { Text("Save") } },
         dismissButton = {
             Row {
                 TextButton(onClick = onReset) { Text("Reset") }

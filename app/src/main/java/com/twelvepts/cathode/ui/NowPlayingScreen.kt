@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -106,13 +107,14 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
     var showQueue by remember { mutableStateOf(false) }
     var showAudioLab by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
     var sleepAmount by remember { mutableStateOf("") }
     var sleepUnit by remember { mutableStateOf("minutes") }
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    BackHandler { when { showSleepTimer -> showSleepTimer = false; showAudioLab -> showAudioLab = false; showQueue -> showQueue = false; else -> onDismiss() } }
+    BackHandler { when { showSleepTimer -> showSleepTimer = false; showLyrics -> showLyrics = false; showAudioLab -> showAudioLab = false; showQueue -> showQueue = false; else -> onDismiss() } }
 
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Box(Modifier.fillMaxSize()) {
@@ -154,6 +156,9 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         textAlign = TextAlign.Center,
                     )
                     Row {
+                        IconButton(onClick = { showLyrics = true }) {
+                            Icon(Icons.Default.Lyrics, "Open lyrics", tint = if (state.lyrics.isBlank()) CathodeMuted else CathodeCyan)
+                        }
                         IconButton(onClick = { showSleepTimer = true }) {
                             Icon(Icons.Default.Bedtime, "Sleep timer", tint = if (state.sleepTimerEndEpochMs > 0) CathodeCyan else CathodeMuted)
                         }
@@ -191,6 +196,25 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                 Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 state.playbackError?.let {
                     Text(it, color = CathodeError, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+                }
+                state.replayGainDb?.let { gain ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("ReplayGain ${"%+.2f".format(gain)} dB", Modifier.weight(1f), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                        Switch(checked = state.replayGainEnabled, onCheckedChange = player::setReplayGainEnabled)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Soft transition", Modifier.weight(1f), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                    Switch(checked = state.transitionFadeEnabled, onCheckedChange = { player.setTransitionFade(it) })
+                }
+                if (state.transitionFadeEnabled) {
+                    Text("${state.transitionFadeSeconds}s fade between tracks", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                    Slider(
+                        value = state.transitionFadeSeconds.toFloat(),
+                        onValueChange = { player.setTransitionFade(true, it.toInt()) },
+                        valueRange = 1f..12f,
+                        steps = 10,
+                    )
                 }
                 Spacer(Modifier.height(10.dp))
                 WaveformScrubber(
@@ -283,6 +307,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
             }
         }
     }
+    if (showLyrics) LyricsScreen(state) { showLyrics = false }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
     if (showSleepTimer) AlertDialog(
@@ -358,6 +383,51 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
         dismissButton = { TextButton(onClick = { showSleepTimer = false }) { Text("Close") } },
     )
 }
+
+private data class LyricLine(val timeMs: Long?, val text: String)
+
+@Composable
+private fun LyricsScreen(state: PlaybackState, onClose: () -> Unit) {
+    val lines = remember(state.lyrics) { parseLyrics(state.lyrics) }
+    val activeIndex = lines.indexOfLast { it.timeMs != null && it.timeMs <= state.positionMs }
+    Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Close lyrics", tint = CathodeCyan) }
+                Column(Modifier.weight(1f)) {
+                    Text("Lyrics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(state.title, color = CathodeMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (lines.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No local lyrics yet. Edit this track's metadata from Library to add plain text or LRC lyrics.", color = CathodeMuted, textAlign = TextAlign.Center)
+                }
+            } else LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                itemsIndexed(lines) { index, line ->
+                    Text(
+                        line.text,
+                        color = if (index == activeIndex) CathodeCyan else CathodeText.copy(alpha = if (line.timeMs == null) .92f else .58f),
+                        style = if (index == activeIndex) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                        fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun parseLyrics(value: String): List<LyricLine> = value.lineSequence().mapNotNull { raw ->
+    val line = raw.trim()
+    if (line.isBlank()) return@mapNotNull null
+    val match = Regex("^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?](.*)$").find(line)
+    if (match == null) LyricLine(null, line) else {
+        val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+        val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+        val fraction = match.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+        LyricLine((minutes * 60L + seconds) * 1000L + fraction, match.groupValues[4].trim())
+    }
+}.toList()
 
 private fun formatSleepDuration(seconds: Long): String = when {
     seconds % 3600L == 0L -> "${seconds / 3600L} hours"

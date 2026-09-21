@@ -19,6 +19,9 @@ data class AudioTrack(
     val dateAddedSeconds: Long,
     val tags: String = "",
     val customArtworkUri: String? = null,
+    val lyrics: String = "",
+    val replayGainDb: Float? = null,
+    val hasFlacSeekTable: Boolean? = null,
 ) {
     val stableKey: String
         get() = stableTrackKey(relativePath, displayName, fileSize)

@@ -125,6 +125,7 @@ fun AcquireScreen() {
     var importText by remember { mutableStateOf("") }
     var importedTracks by remember { mutableStateOf<List<ImportedTrack>>(emptyList()) }
     var importSource by remember { mutableStateOf(discoverSources.first()) }
+    var completedImports by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun closeSource() {
         webView?.apply {
             stopLoading()
@@ -309,6 +310,24 @@ fun AcquireScreen() {
                 Button(onClick = { importedTracks = parsePlaylistText(importText) }, enabled = importText.isNotBlank()) {
                     Text("Parse tracks")
                 }
+                if (importedTracks.isNotEmpty()) {
+                    Text("${completedImports.size}/${importedTracks.size} searches opened", color = CathodeCyan)
+                    TextButton(onClick = {
+                        context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE).edit()
+                            .putString("draft_text", importText)
+                            .putString("draft_source", importSource.id)
+                            .putStringSet("draft_completed", completedImports)
+                            .apply()
+                        Toast.makeText(context, "Conversion session saved", Toast.LENGTH_SHORT).show()
+                    }) { Text("Save session") }
+                    TextButton(onClick = {
+                        val preferences = context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE)
+                        importText = preferences.getString("draft_text", "").orEmpty()
+                        importedTracks = parsePlaylistText(importText)
+                        importSource = discoverSources.firstOrNull { it.id == preferences.getString("draft_source", "") } ?: discoverSources.first()
+                        completedImports = preferences.getStringSet("draft_completed", emptySet()).orEmpty()
+                    }) { Text("Resume saved session") }
+                }
                 Text("Search source", color = CathodeCyan, fontWeight = FontWeight.Bold)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(discoverSources.size) { index ->
@@ -318,14 +337,24 @@ fun AcquireScreen() {
                 }
                 importedTracks.forEachIndexed { index, track ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${index + 1}. ${track.query}", Modifier.weight(1f), maxLines = 2)
+                        Text(
+                            "${index + 1}. ${track.query}",
+                            Modifier.weight(1f),
+                            maxLines = 2,
+                            color = if (track.query in completedImports) CathodeMuted else CathodeText,
+                        )
                         TextButton(onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Cathode track search", track.query))
+                            completedImports = completedImports + track.query
                             showPlaylistImport = false
                             selectedSource = importSource
                             Toast.makeText(context, "Search copied. Paste it into ${importSource.name}.", Toast.LENGTH_LONG).show()
                         }) { Text("Search") }
+                        IconButton(onClick = {
+                            importedTracks = importedTracks.filterNot { it == track }
+                            completedImports = completedImports - track.query
+                        }) { Icon(Icons.Default.Close, "Remove imported track", tint = CathodeMuted) }
                     }
                 }
             }

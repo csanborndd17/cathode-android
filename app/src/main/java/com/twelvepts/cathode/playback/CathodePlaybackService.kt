@@ -52,6 +52,25 @@ class CathodePlaybackService : MediaSessionService() {
             handler.postDelayed(this, 1_000)
         }
     }
+    private val transitionFade = object : Runnable {
+        override fun run() {
+            val player = mediaSession?.player ?: return
+            val preferences = getSharedPreferences("playback_session", MODE_PRIVATE)
+            val enabled = preferences.getBoolean("transition_fade_enabled", false)
+            val fadeMs = preferences.getInt("transition_fade_seconds", 3).coerceIn(1, 12) * 1_000L
+            val extras = player.mediaMetadata.extras
+            val gain = if (preferences.getBoolean("replay_gain_enabled", false) && extras?.containsKey("cathode_replay_gain") == true) {
+                Math.pow(10.0, extras.getFloat("cathode_replay_gain").toDouble() / 20.0).toFloat().coerceIn(0f, 1f)
+            } else 1f
+            val factor = if (!enabled || !player.isPlaying || player.duration <= 0) 1f else {
+                val fadeIn = (player.currentPosition.toFloat() / fadeMs).coerceIn(0f, 1f)
+                val fadeOut = ((player.duration - player.currentPosition).toFloat() / fadeMs).coerceIn(0f, 1f)
+                minOf(fadeIn, fadeOut)
+            }
+            player.volume = gain * factor
+            handler.postDelayed(this, 100)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -104,6 +123,7 @@ class CathodePlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build()
         handler.postDelayed(checkpoint, 30_000)
         handler.post(sleepTimer)
+        handler.post(transitionFade)
     }
 
     private fun recordStart(player: Player, force: Boolean) {
@@ -127,6 +147,8 @@ class CathodePlaybackService : MediaSessionService() {
                 put("artist", metadata.artist?.toString().orEmpty())
                 put("album", metadata.albumTitle?.toString().orEmpty())
                 put("artwork", metadata.artworkUri?.toString().orEmpty())
+                put("lyrics", metadata.extras?.getString("cathode_lyrics").orEmpty())
+                metadata.extras?.takeIf { it.containsKey("cathode_replay_gain") }?.let { put("replayGain", it.getFloat("cathode_replay_gain").toDouble()) }
             })
         }
         getSharedPreferences("playback_session", MODE_PRIVATE).edit()
@@ -159,6 +181,10 @@ class CathodePlaybackService : MediaSessionService() {
                                     .setArtist(value.optString("artist"))
                                     .setAlbumTitle(value.optString("album"))
                                     .setArtworkUri(value.optString("artwork").takeIf(String::isNotBlank)?.let(Uri::parse))
+                                    .setExtras(android.os.Bundle().apply {
+                                        putString("cathode_lyrics", value.optString("lyrics"))
+                                        if (value.has("replayGain")) putFloat("cathode_replay_gain", value.optDouble("replayGain").toFloat())
+                                    })
                                     .setIsPlayable(true)
                                     .build(),
                             )
@@ -187,6 +213,7 @@ class CathodePlaybackService : MediaSessionService() {
     override fun onDestroy() {
         handler.removeCallbacks(checkpoint)
         handler.removeCallbacks(sleepTimer)
+        handler.removeCallbacks(transitionFade)
         mediaSession?.run {
             saveSession(player)
             player.release()

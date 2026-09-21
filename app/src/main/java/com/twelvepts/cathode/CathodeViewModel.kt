@@ -131,8 +131,9 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         album: String,
         tags: String,
         customArtworkUri: String?,
+        lyrics: String,
     ) {
-        val updated = repository.updateMetadata(track, title, artist, album, tags, customArtworkUri)
+        val updated = repository.updateMetadata(track, title, artist, album, tags, customArtworkUri, lyrics)
         _library.value = _library.value.copy(
             tracks = _library.value.tracks.map { if (it.id == updated.id) updated else it },
         )
