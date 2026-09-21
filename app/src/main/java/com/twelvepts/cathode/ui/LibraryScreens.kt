@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
@@ -65,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +76,7 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.model.AudioTrack
+import java.util.Calendar
 
 typealias MetadataEditor = (AudioTrack, String, String, String, String, String?) -> Unit
 typealias MetadataResetter = (AudioTrack) -> Unit
@@ -92,64 +96,139 @@ fun HomeScreen(
     onToggleFavorite: FavoriteToggler,
     onAddToPlaylist: PlaylistAdder,
     onProfile: () -> Unit,
+    onOpenLibrary: (LibraryCategory) -> Unit,
+    currentTrackKey: String?,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
-    val albumCount = remember(state.tracks) { state.tracks.map(AudioTrack::album).distinct().size }
-    val pinned = remember(state.tracks, settings.pinnedTrackKeys) { state.tracks.filter { it.stableKey in settings.pinnedTrackKeys } }
-    fun togglePin(track: AudioTrack) = store.update {
-        it.copy(pinnedTrackKeys = if (track.stableKey in it.pinnedTrackKeys) it.pinnedTrackKeys - track.stableKey else it.pinnedTrackKeys + track.stableKey)
-    }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(settings.profileImageUri, "Open profile", Modifier.size(44.dp).clip(CircleShape).background(CathodeDim).clickable(onClick = onProfile), contentScale = ContentScale.Crop)
+    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val signal = state.transmissionYears[currentYear]
+    val recent = state.recentTrackKeys.mapNotNull { key -> state.tracks.firstOrNull { it.stableKey == key } }
+    val current = state.tracks.firstOrNull { it.stableKey == currentTrackKey }
+    val hero = current ?: recent.firstOrNull() ?: state.tracks.firstOrNull()
+    val mostPlayed = state.tracks.filter { (state.playCounts[it.stableKey] ?: 0) > 0 }.sortedByDescending { state.playCounts[it.stableKey] ?: 0 }.take(10)
+    val lossless = state.tracks.filter { track ->
+        val type = track.mimeType.orEmpty().lowercase()
+        type.contains("flac") || type.contains("alac") || type.contains("wav")
+    }.take(10)
+    val rediscover = state.tracks.filter { it.stableKey in state.favoriteKeys && it !in recent.take(12) }.take(10)
+    val albums = recent.groupBy { it.album }.values.mapNotNull { it.firstOrNull() }.take(10)
+    fun visible(name: String) = name !in settings.hiddenHomeSections
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(settings.profileImageUri, "Open profile", Modifier.size(46.dp).clip(CircleShape).background(CathodeDim).clickable(onClick = onProfile), contentScale = ContentScale.Crop)
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    Text("Your music", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("${state.tracks.size} songs · $albumCount albums · available offline", color = CathodeMuted)
+                    Text("Home", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("${state.tracks.size} local tracks", color = CathodeMuted)
                 }
                 IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan library", tint = CathodeCyan) }
             }
         }
-        if (state.tracks.isNotEmpty()) item {
-            Button(onClick = { onPlay(state.tracks.first()) }) {
-                Icon(Icons.Default.PlayArrow, null); Text("Play all", modifier = Modifier.padding(start = 8.dp))
-            }
-        }
-        if (state.tracks.isEmpty()) item { EmptyLibrary(state.permissionGranted) }
-        val recent = state.recentTrackKeys.mapNotNull { key -> state.tracks.firstOrNull { it.stableKey == key } }.take(12)
-        val mostPlayed = state.tracks.filter { (state.playCounts[it.stableKey] ?: 0) > 0 }
-            .sortedByDescending { state.playCounts[it.stableKey] ?: 0 }.take(12)
-        settings.homeSections.filterNot(settings.hiddenHomeSections::contains).forEach { section ->
-            when (section) {
-                "Pinned" -> if (pinned.isNotEmpty()) {
-                    item { SectionLabel("Pinned") }
-                    items(pinned, key = { "pinned-${it.id}" }) { TrackRow(it,onPlay,onEdit,onReset,true,{togglePin(it)},it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) }) }
-                }
-                "Recently played" -> if (recent.isNotEmpty()) {
-                    item { SectionLabel("Recently played") }
-                    items(recent, key = { "played-${it.stableKey}" }) {
-                        TrackRow(it,onPlay,onEdit,onReset,false,null,it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
-                    }
-                }
-                "Most played" -> if (mostPlayed.isNotEmpty()) {
-                    item { SectionLabel("Most played") }
-                    items(mostPlayed, key = { "most-${it.stableKey}" }) {
-                        TrackRow(it,onPlay,onEdit,onReset,false,null,it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
-                    }
-                }
-                "Recently added" -> if (state.tracks.isNotEmpty()) {
-                    item { SectionLabel("Recently added") }
-                    items(state.tracks.take(12), key = { "recent-${it.id}" }) {
-                        TrackRow(it,onPlay,onEdit,onReset,it.stableKey in settings.pinnedTrackKeys,{togglePin(it)},it.stableKey in state.favoriteKeys,{onToggleFavorite(it)},state.playlists,{ id -> onAddToPlaylist(id,it) })
+        if (hero != null && visible("Continue listening")) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Card(onClick = { onPlay(hero) }, modifier = Modifier.fillMaxWidth().height(220.dp)) {
+                    Box(Modifier.fillMaxSize()) {
+                        AsyncImage(hero.artworkUri, "${hero.album} cover", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, CathodeBlack.copy(alpha = .92f)))))
+                        Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
+                            Text(if (current != null) "NOW TRANSMITTING" else "CONTINUE LISTENING", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            Text(hero.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${hero.artist} · ${hero.album}", color = CathodeMuted, maxLines = 1)
+                        }
+                        Icon(Icons.Default.PlayArrow, "Play", tint = CathodeBlack, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp).size(52.dp).clip(CircleShape).background(CathodeCyan).padding(10.dp))
                     }
                 }
             }
         }
-        item { Spacer(Modifier.height(16.dp)) }
+        if (state.tracks.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { EmptyLibrary(state.permissionGranted) }
+        } else if (visible("Quick transmission")) {
+            item { HomeMetricCard("SHUFFLE", "${state.tracks.size} tracks", Icons.Default.PlayArrow) { onPlay(state.tracks.random()) } }
+            item { HomeMetricCard("FAVORITES", "${state.favoriteKeys.size} saved", Icons.Default.Favorite) { onOpenLibrary(LibraryCategory.FAVORITES) } }
+            item { HomeMetricCard("LOSSLESS", "${lossless.size} indexed", Icons.Default.Star) { onOpenLibrary(LibraryCategory.SONGS) } }
+            item { HomeMetricCard("PLAYLISTS", "${state.playlists.size} collections", Icons.Default.PlaylistAdd) { onOpenLibrary(LibraryCategory.PLAYLISTS) } }
+        }
+        if (visible("Transmission snapshot")) {
+            item(span = { GridItemSpan(maxLineSpan) }) { HomeSectionTitle("Transmission snapshot") }
+            item { HomeNumberCard("${signal?.totalListenedMs?.div(60_000) ?: 0}", "MINUTES THIS YEAR") }
+            item { HomeNumberCard("${signal?.totalPlays ?: 0}", "PLAYS THIS YEAR") }
+        }
+        if (mostPlayed.isNotEmpty() && visible("On repeat")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("On repeat", mostPlayed, onPlay) }
+        if (recent.isNotEmpty() && visible("Recently played")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("Recently played", recent.take(10), onPlay) }
+        if (albums.isNotEmpty() && visible("Albums in progress")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("Albums in progress", albums, onPlay) }
+        if (rediscover.isNotEmpty() && visible("Rediscover")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("Rediscover", rediscover, onPlay) }
+        if (lossless.isNotEmpty() && visible("Lossless shelf")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("Lossless shelf", lossless, onPlay) }
+        if (state.playlists.isNotEmpty() && visible("Pinned playlists")) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    HomeSectionTitle("Your playlists")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(state.playlists) { playlist ->
+                            Card(onClick = { onOpenLibrary(LibraryCategory.PLAYLISTS) }, modifier = Modifier.size(width = 170.dp, height = 92.dp)) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                                    Text(playlist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${playlist.trackCount} tracks", color = CathodeMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(18.dp)) }
     }
 }
+
+@Composable
+private fun HomeMetricCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth().height(112.dp)) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Icon(icon, null, tint = CathodeCyan)
+            Column { Text(title, fontWeight = FontWeight.Bold); Text(detail, color = CathodeMuted, style = MaterialTheme.typography.labelMedium) }
+        }
+    }
+}
+
+@Composable
+private fun HomeNumberCard(value: String, label: String) {
+    Card(Modifier.fillMaxWidth().height(96.dp)) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.Center) {
+            Text(value, color = CathodeCyan, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(label, color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable private fun HomeSectionTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+}
+
+@Composable
+private fun HomeTrackShelf(title: String, tracks: List<AudioTrack>, onPlay: (AudioTrack) -> Unit) {
+    Column {
+        HomeSectionTitle(title)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(tracks, key = AudioTrack::stableKey) { track ->
+                Card(onClick = { onPlay(track) }, modifier = Modifier.size(width = 150.dp, height = 205.dp)) {
+                    Column {
+                        AsyncImage(track.artworkUri, "${track.album} cover", Modifier.fillMaxWidth().height(150.dp), contentScale = ContentScale.Crop)
+                        Text(track.title, Modifier.padding(start = 9.dp, end = 9.dp, top = 7.dp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(track.artist, Modifier.padding(horizontal = 9.dp), color = CathodeMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun LibraryScreen(
     state: LibraryState,

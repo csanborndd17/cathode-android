@@ -46,8 +46,8 @@ data class CathodeSettings(
     val transmissionLogSeenYear: Int = 0,
 ) {
     companion object {
-        val defaultTabs = listOf("Listen", "Library", "Discover")
-        val defaultHomeSections = listOf("Pinned", "Recently played", "Most played")
+        val defaultTabs = listOf("Home", "Library", "Discover")
+        val defaultHomeSections = listOf("Continue listening", "Quick transmission", "Transmission snapshot", "On repeat", "Recently played", "Albums in progress", "Rediscover", "Lossless shelf", "Pinned playlists")
     }
 }
 

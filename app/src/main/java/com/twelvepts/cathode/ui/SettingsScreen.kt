@@ -81,7 +81,7 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
             }
             item {
                 SettingSection("Startup destination")
-                listOf("Remember","Listen","Library","Discover").forEach { destination ->
+                listOf("Remember","Home","Library","Discover").forEach { destination ->
                     FilterChip(selected=settings.startupDestination==destination,onClick={store.update{it.copy(startupDestination=destination)}},label={Text(destination)})
                 }
             }
@@ -92,9 +92,9 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
                 }
             }
             item {
-                SettingSection("Listen sections")
+                SettingSection("Home sections")
                 settings.homeSections.forEach { name ->
-                    SettingToggle(name,"Show this section on Listen.",name !in settings.hiddenHomeSections){visible->
+                    SettingToggle(name,"Show this section on Home.",name !in settings.hiddenHomeSections){visible->
                         store.update{it.copy(hiddenHomeSections=if(visible) it.hiddenHomeSections-name else it.hiddenHomeSections+name)}
                     }
                 }

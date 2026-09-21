@@ -39,7 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class CathodeTab(val label: String, val icon: ImageVector) {
-    Listen("LISTEN", Icons.Default.Home),
+    Home("HOME", Icons.Default.Home),
     Library("LIBRARY", Icons.Default.LibraryMusic),
     Discover("DISCOVER", Icons.Default.CloudDownload),
 }
@@ -54,9 +54,9 @@ fun CathodeApp(
     settingsStore: CathodeSettingsStore,
 ) {
     fun resolveTab(name: String): CathodeTab = when (name) {
-        "Home" -> CathodeTab.Listen
+        "Listen" -> CathodeTab.Home
         "Acquire" -> CathodeTab.Discover
-        else -> runCatching { CathodeTab.valueOf(name) }.getOrDefault(CathodeTab.Listen)
+        else -> runCatching { CathodeTab.valueOf(name) }.getOrDefault(CathodeTab.Home)
     }
     var tab by remember {
         val target = if (settings.startupDestination == "Remember") settings.lastTab else settings.startupDestination
@@ -85,8 +85,8 @@ fun CathodeApp(
     BackHandler(enabled = drawerState.isOpen && !showPlayer && !showSettings && !showTransmission) {
         scope.launch { drawerState.close() }
     }
-    BackHandler(enabled = drawerState.isClosed && !showPlayer && !showSettings && !showTransmission && tab != CathodeTab.Listen) {
-        selectTab(CathodeTab.Listen)
+    BackHandler(enabled = drawerState.isClosed && !showPlayer && !showSettings && !showTransmission && tab != CathodeTab.Home) {
+        selectTab(CathodeTab.Home)
     }
 
     LaunchedEffect(settings.startupAnimation) {
@@ -174,7 +174,7 @@ fun CathodeApp(
                     label = "main-tabs",
                 ) { destination ->
                     when (destination) {
-                        CathodeTab.Listen -> HomeScreen(
+                        CathodeTab.Home -> HomeScreen(
                             state = library,
                             onRescan = viewModel::rescan,
                             onPlay = ::playTrack,
@@ -183,6 +183,11 @@ fun CathodeApp(
                             onToggleFavorite = viewModel::toggleFavorite,
                             onAddToPlaylist = viewModel::addToPlaylist,
                             onProfile = { scope.launch { drawerState.open() } },
+                            onOpenLibrary = { category ->
+                                settingsStore.update { it.copy(libraryCategory = category) }
+                                selectTab(CathodeTab.Library)
+                            },
+                            currentTrackKey = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId,
                             settings = settings,
                             store = settingsStore,
                         )

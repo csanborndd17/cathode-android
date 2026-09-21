@@ -69,17 +69,10 @@ fun SignalDust(animations: Boolean, modifier: Modifier = Modifier) {
             val shimmer = .35f + .65f * ((sin(phase * 6.28f + index) + 1f) / 2f)
             drawCircle(
                 color = if (index % 5 == 0) CathodeCyan.copy(alpha = .30f * shimmer) else Color.White.copy(alpha = .14f * shimmer),
-                radius = 1.8f + index % 4,
+                radius = 4.5f + index % 6,
                 center = Offset(x, y),
             )
         }
-        val streakY = size.height * (.18f + phase * .55f)
-        drawLine(
-            brush = Brush.horizontalGradient(listOf(Color.Transparent, CathodeCyan.copy(alpha = .22f), Color.Transparent)),
-            start = Offset(0f, streakY),
-            end = Offset(size.width, streakY),
-            strokeWidth = 4f,
-        )
     }
 }
 
