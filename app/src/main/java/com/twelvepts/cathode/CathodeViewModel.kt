@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.twelvepts.cathode.data.AudioLibraryRepository
 import com.twelvepts.cathode.data.CathodeLibraryDatabase
 import com.twelvepts.cathode.data.PlaylistSummary
+import com.twelvepts.cathode.data.TransmissionYear
 import com.twelvepts.cathode.model.AudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ data class LibraryState(
     val playlistTrackKeys: Map<Long, List<String>> = emptyMap(),
     val recentTrackKeys: List<String> = emptyList(),
     val playCounts: Map<String, Int> = emptyMap(),
+    val transmissionYears: Map<Int, TransmissionYear> = emptyMap(),
 )
 
 class CathodeViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,6 +61,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
             playlistTrackKeys = playlists.associate { it.id to database.playlistTrackKeys(it.id) },
             recentTrackKeys = database.recentTrackKeys(),
             playCounts = database.playCounts(),
+            transmissionYears = database.transmissionYears(),
         )
     }
 
@@ -91,9 +94,16 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         refreshCollections()
     }
 
-    fun recordPlay(track: AudioTrack) {
+    fun recordPlaybackStart(track: AudioTrack) {
         viewModelScope.launch(Dispatchers.IO) {
-            database.recordPlay(track.stableKey)
+            database.recordPlaybackStart(track.stableKey)
+            refreshCollections()
+        }
+    }
+
+    fun recordListening(track: AudioTrack, listenedMs: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.recordListening(track.stableKey, listenedMs)
             refreshCollections()
         }
     }

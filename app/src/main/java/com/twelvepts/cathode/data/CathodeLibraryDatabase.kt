@@ -4,17 +4,32 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int)
+data class ListeningStat(val trackKey: String, val playCount: Int, val listenedMs: Long)
+data class TransmissionYear(
+    val year: Int,
+    val tracks: List<ListeningStat>,
+    val activeDays: Int,
+    val peakHour: Int?,
+) {
+    val totalPlays: Int get() = tracks.sumOf(ListeningStat::playCount)
+    val totalListenedMs: Long get() = tracks.sumOf(ListeningStat::listenedMs)
+}
 
 class CathodeLibraryDatabase(context: Context) :
-    SQLiteOpenHelper(context, "cathode_library.db", null, 1) {
+    SQLiteOpenHelper(context, "cathode_library.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE favorites (track_key TEXT PRIMARY KEY, added_at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created_at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL, track_key TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (playlist_id, track_key), FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE)")
         db.execSQL("CREATE TABLE history (track_key TEXT PRIMARY KEY, play_count INTEGER NOT NULL, last_played INTEGER NOT NULL)")
+        createTransmissionTables(db)
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -22,7 +37,15 @@ class CathodeLibraryDatabase(context: Context) :
         db.setForeignKeyConstraintsEnabled(true)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createTransmissionTables(db)
+    }
+
+    private fun createTransmissionTables(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS listening_stats (track_key TEXT NOT NULL, year INTEGER NOT NULL, play_count INTEGER NOT NULL DEFAULT 0, listened_ms INTEGER NOT NULL DEFAULT 0, last_played INTEGER NOT NULL, PRIMARY KEY(track_key, year))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS listening_events (id INTEGER PRIMARY KEY AUTOINCREMENT, track_key TEXT NOT NULL, year INTEGER NOT NULL, day_key TEXT NOT NULL, hour INTEGER NOT NULL, played_at INTEGER NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS listening_events_year ON listening_events(year)")
+    }
 
     fun favoriteKeys(): Set<String> = readableDatabase.rawQuery("SELECT track_key FROM favorites", null).use { cursor ->
         buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
@@ -48,28 +71,17 @@ class CathodeLibraryDatabase(context: Context) :
         })
     }
 
-    fun deletePlaylist(id: Long) {
-        writableDatabase.delete("playlists", "id=?", arrayOf(id.toString()))
-    }
+    fun deletePlaylist(id: Long) { writableDatabase.delete("playlists", "id=?", arrayOf(id.toString())) }
 
     fun playlists(): List<PlaylistSummary> = readableDatabase.rawQuery(
-        "SELECT p.id, p.name, COUNT(t.track_key) FROM playlists p LEFT JOIN playlist_tracks t ON p.id=t.playlist_id GROUP BY p.id ORDER BY p.created_at DESC",
-        null,
-    ).use { cursor ->
-        buildList {
-            while (cursor.moveToNext()) add(PlaylistSummary(cursor.getLong(0), cursor.getString(1), cursor.getInt(2)))
-        }
-    }
+        "SELECT p.id, p.name, COUNT(t.track_key) FROM playlists p LEFT JOIN playlist_tracks t ON p.id=t.playlist_id GROUP BY p.id ORDER BY p.created_at DESC", null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(PlaylistSummary(cursor.getLong(0), cursor.getString(1), cursor.getInt(2))) } }
 
     fun addToPlaylist(playlistId: Long, trackKey: String) {
-        val next = readableDatabase.rawQuery(
-            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id=?",
-            arrayOf(playlistId.toString()),
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+        val next = readableDatabase.rawQuery("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id=?", arrayOf(playlistId.toString()))
+            .use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
         writableDatabase.insertWithOnConflict("playlist_tracks", null, ContentValues().apply {
-            put("playlist_id", playlistId)
-            put("track_key", trackKey)
-            put("position", next)
+            put("playlist_id", playlistId); put("track_key", trackKey); put("position", next)
         }, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
@@ -78,24 +90,64 @@ class CathodeLibraryDatabase(context: Context) :
     }
 
     fun playlistTrackKeys(playlistId: Long): List<String> = readableDatabase.rawQuery(
-        "SELECT track_key FROM playlist_tracks WHERE playlist_id=? ORDER BY position",
-        arrayOf(playlistId.toString()),
+        "SELECT track_key FROM playlist_tracks WHERE playlist_id=? ORDER BY position", arrayOf(playlistId.toString()),
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
 
-    fun recordPlay(trackKey: String) {
+    fun recordPlaybackStart(trackKey: String) {
+        val now = System.currentTimeMillis()
+        val calendar = Calendar.getInstance()
+        val year = calendar.get(Calendar.YEAR)
+        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+        val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
+        writableDatabase.beginTransaction()
+        try {
+            writableDatabase.execSQL(
+                "INSERT INTO history(track_key, play_count, last_played) VALUES(?,1,?) ON CONFLICT(track_key) DO UPDATE SET play_count=play_count+1,last_played=excluded.last_played",
+                arrayOf<Any>(trackKey, now),
+            )
+            writableDatabase.execSQL(
+                "INSERT INTO listening_stats(track_key,year,play_count,listened_ms,last_played) VALUES(?,?,1,0,?) ON CONFLICT(track_key,year) DO UPDATE SET play_count=play_count+1,last_played=excluded.last_played",
+                arrayOf<Any>(trackKey, year, now),
+            )
+            writableDatabase.insert("listening_events", null, ContentValues().apply {
+                put("track_key", trackKey); put("year", year); put("day_key", day); put("hour", hour); put("played_at", now)
+            })
+            writableDatabase.setTransactionSuccessful()
+        } finally { writableDatabase.endTransaction() }
+    }
+
+    fun recordListening(trackKey: String, listenedMs: Long) {
+        if (listenedMs <= 0) return
+        val year = Calendar.getInstance().get(Calendar.YEAR)
+        val now = System.currentTimeMillis()
         writableDatabase.execSQL(
-            "INSERT INTO history(track_key, play_count, last_played) VALUES(?,1,?) ON CONFLICT(track_key) DO UPDATE SET play_count=play_count+1,last_played=excluded.last_played",
-            arrayOf<Any>(trackKey, System.currentTimeMillis()),
+            "INSERT INTO listening_stats(track_key,year,play_count,listened_ms,last_played) VALUES(?,?,0,?,?) ON CONFLICT(track_key,year) DO UPDATE SET listened_ms=listened_ms+excluded.listened_ms,last_played=excluded.last_played",
+            arrayOf<Any>(trackKey, year, listenedMs.coerceAtMost(60_000), now),
         )
     }
 
     fun recentTrackKeys(limit: Int = 50): List<String> = readableDatabase.rawQuery(
-        "SELECT track_key FROM history ORDER BY last_played DESC LIMIT ?",
-        arrayOf(limit.toString()),
+        "SELECT track_key FROM history ORDER BY last_played DESC LIMIT ?", arrayOf(limit.toString()),
     ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
 
-    fun playCounts(): Map<String, Int> = readableDatabase.rawQuery(
-        "SELECT track_key, play_count FROM history",
-        null,
-    ).use { cursor -> buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getInt(1)) } }
+    fun playCounts(): Map<String, Int> = readableDatabase.rawQuery("SELECT track_key, play_count FROM history", null)
+        .use { cursor -> buildMap { while (cursor.moveToNext()) put(cursor.getString(0), cursor.getInt(1)) } }
+
+    fun transmissionYears(): Map<Int, TransmissionYear> {
+        val stats = readableDatabase.rawQuery(
+            "SELECT track_key,year,play_count,listened_ms FROM listening_stats ORDER BY year DESC, listened_ms DESC", null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(Triple(cursor.getInt(1), cursor.getString(0), Pair(cursor.getInt(2), cursor.getLong(3))))
+            }
+        }.groupBy { it.first }
+        return stats.mapValues { (year, rows) ->
+            val activeDays = readableDatabase.rawQuery("SELECT COUNT(DISTINCT day_key) FROM listening_events WHERE year=?", arrayOf(year.toString()))
+                .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            val peakHour = readableDatabase.rawQuery(
+                "SELECT hour,COUNT(*) count FROM listening_events WHERE year=? GROUP BY hour ORDER BY count DESC LIMIT 1", arrayOf(year.toString()),
+            ).use { if (it.moveToFirst()) it.getInt(0) else null }
+            TransmissionYear(year, rows.map { ListeningStat(it.second, it.third.first, it.third.second) }, activeDays, peakHour)
+        }
+    }
 }
