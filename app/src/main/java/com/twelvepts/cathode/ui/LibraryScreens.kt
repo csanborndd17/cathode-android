@@ -357,7 +357,14 @@ fun LibraryScreen(
             }
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
                 Text("CATHODE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                Text(detail?.title ?: "Library", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    detail?.title ?: "Library",
+                    modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 1200),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                )
                 Text(detail?.subtitle ?: "${state.tracks.size} local tracks", color = CathodeMuted)
             }
             if (settings.libraryCategory == LibraryCategory.PLAYLISTS && detail == null) {

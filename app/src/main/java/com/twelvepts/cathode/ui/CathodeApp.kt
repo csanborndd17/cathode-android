@@ -274,10 +274,10 @@ private fun MiniPlayer(
         AsyncImage(
             model = artworkUri,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize().blur(8.dp).alpha((.16f + CathodeGlowStrength * .34f).coerceIn(.16f, .5f)),
+            modifier = Modifier.fillMaxSize().blur(3.dp).alpha((.42f + CathodeGlowStrength * .28f).coerceIn(.42f, .68f)),
             contentScale = ContentScale.Crop,
         )
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(CathodePanel.copy(alpha = .45f), CathodePanel.copy(alpha = .92f)))))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(CathodePanel.copy(alpha = .18f), CathodePanel.copy(alpha = .68f)))))
         LinearProgressIndicator(
             progress = { if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f },
             modifier = Modifier.fillMaxWidth().height(2.dp).align(Alignment.TopCenter),

@@ -54,6 +54,7 @@ private data class DownloadSignal(
 
 private data class DownloadSnapshot(
     val active: List<DownloadSignal> = emptyList(),
+    val completed: List<DownloadSignal> = emptyList(),
     val failedTitle: String? = null,
     val failedReason: Int = 0,
 )
@@ -161,6 +162,14 @@ fun AcquireScreen() {
                 onDismissFailure = {
                     context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE).edit()
                         .remove("last_status").remove("last_title").remove("last_reason").apply()
+                    downloads = readDownloadSnapshot(context)
+                },
+                onDismissCompleted = { id ->
+                    val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
+                    preferences.edit()
+                        .putStringSet("completed_ids", preferences.getStringSet("completed_ids", emptySet()).orEmpty() - id.toString())
+                        .remove("title_" + id)
+                        .apply()
                     downloads = readDownloadSnapshot(context)
                 },
             )
@@ -283,6 +292,7 @@ private fun DiscoverHub(
     onOpen: (DiscoverSource) -> Unit,
     onCancelDownload: (Long) -> Unit,
     onDismissFailure: () -> Unit,
+    onDismissCompleted: (Long) -> Unit,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp),
@@ -324,6 +334,25 @@ private fun DiscoverHub(
                             modifier = Modifier.fillMaxWidth().height(3.dp),
                             color = CathodeCyan,
                         ) else LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp), color = CathodeCyan)
+                    }
+                }
+            }
+        }
+        downloads.completed.forEach { download ->
+            item(key = "installed-" + download.id) {
+                Card(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 15.dp, end = 7.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("INSTALLED", color = CathodeCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text(download.title, maxLines = 1)
+                            Text("Available in your local library", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        IconButton(onClick = { onDismissCompleted(download.id) }) {
+                            Icon(Icons.Default.Close, "Dismiss completed download", tint = CathodeMuted)
+                        }
                     }
                 }
             }
@@ -441,6 +470,7 @@ private class CathodeDownloadListener(private val context: Context, private val 
 private fun readDownloadSnapshot(context: Context): DownloadSnapshot {
     val preferences = context.getSharedPreferences("cathode_downloads", Context.MODE_PRIVATE)
     val ids = preferences.getStringSet("active_ids", emptySet()).orEmpty().mapNotNull(String::toLongOrNull)
+    val completedIds = preferences.getStringSet("completed_ids", emptySet()).orEmpty().mapNotNull(String::toLongOrNull)
     val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     val active = ids.mapNotNull { id ->
         runCatching {
@@ -458,6 +488,14 @@ private fun readDownloadSnapshot(context: Context): DownloadSnapshot {
     val lastStatus = preferences.getInt("last_status", 0)
     return DownloadSnapshot(
         active = active,
+        completed = completedIds.map { id ->
+            DownloadSignal(
+                id = id,
+                title = preferences.getString("title_" + id, "Downloaded track").orEmpty(),
+                status = DownloadManager.STATUS_SUCCESSFUL,
+                progress = 1f,
+            )
+        },
         failedTitle = preferences.getString("last_title", null).takeIf { lastStatus == DownloadManager.STATUS_FAILED },
         failedReason = preferences.getInt("last_reason", 0),
     )

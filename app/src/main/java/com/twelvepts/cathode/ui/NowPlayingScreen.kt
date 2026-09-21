@@ -4,6 +4,7 @@ import android.view.HapticFeedbackConstants
 import android.content.Context
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
+import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -54,6 +55,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -96,6 +98,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.sin
+import java.util.Calendar
 
 @Composable
 fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
@@ -103,6 +106,8 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
     var showQueue by remember { mutableStateOf(false) }
     var showAudioLab by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
+    var sleepAmount by remember { mutableStateOf("") }
+    var sleepUnit by remember { mutableStateOf("minutes") }
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
@@ -293,6 +298,58 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         Text("$minutes minutes")
                     }
                 }
+                state.sleepTimerPresetsSeconds.forEach { seconds ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { player.setSleepTimerSeconds(seconds); showSleepTimer = false }, modifier = Modifier.weight(1f)) {
+                            Text(formatSleepDuration(seconds))
+                        }
+                        IconButton(onClick = { player.removeSleepTimerPreset(seconds) }) {
+                            Icon(Icons.Default.Delete, "Delete sleep preset", tint = CathodeMuted)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = sleepAmount,
+                    onValueChange = { sleepAmount = it.filter(Char::isDigit).take(6) },
+                    label = { Text("Custom amount") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    listOf("seconds", "minutes", "hours").forEach { unit ->
+                        AssistChip(onClick = { sleepUnit = unit }, label = { Text(unit) })
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = {
+                        sleepAmount.toLongOrNull()?.let { amount ->
+                            val seconds = amount * when (sleepUnit) { "hours" -> 3600L; "minutes" -> 60L; else -> 1L }
+                            player.setSleepTimerSeconds(seconds)
+                            showSleepTimer = false
+                        }
+                    }) { Text("Start custom") }
+                    TextButton(onClick = {
+                        sleepAmount.toLongOrNull()?.let { amount ->
+                            val seconds = amount * when (sleepUnit) { "hours" -> 3600L; "minutes" -> 60L; else -> 1L }
+                            player.addSleepTimerPreset(seconds)
+                        }
+                    }) { Text("Save preset") }
+                }
+                val context = LocalContext.current
+                TextButton(onClick = {
+                    val now = Calendar.getInstance()
+                    TimePickerDialog(context, { _, hour, minute ->
+                        val target = Calendar.getInstance().apply {
+                            set(Calendar.HOUR_OF_DAY, hour)
+                            set(Calendar.MINUTE, minute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                            if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
+                        }
+                        player.setSleepTimerAt(target.timeInMillis)
+                        showSleepTimer = false
+                    }, now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), false).show()
+                }, modifier = Modifier.fillMaxWidth()) { Text("Pause at a time of day…") }
             }
         },
         confirmButton = {
@@ -300,6 +357,12 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
         },
         dismissButton = { TextButton(onClick = { showSleepTimer = false }) { Text("Close") } },
     )
+}
+
+private fun formatSleepDuration(seconds: Long): String = when {
+    seconds % 3600L == 0L -> "${seconds / 3600L} hours"
+    seconds % 60L == 0L -> "${seconds / 60L} minutes"
+    else -> "$seconds seconds"
 }
 
 @Composable

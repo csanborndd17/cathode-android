@@ -74,6 +74,10 @@ class MainActivity : ComponentActivity() {
                 .putInt("last_reason", reason)
                 .apply()
             if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                preferences.edit()
+                    .putStringSet("completed_ids", preferences.getStringSet("completed_ids", emptySet()).orEmpty() + id.toString())
+                    .putString("title_" + id, title)
+                    .apply()
                 localUri?.let(Uri::parse)?.path?.let { path ->
                     MediaScannerConnection.scanFile(this@MainActivity, arrayOf(path), null, null)
                 }

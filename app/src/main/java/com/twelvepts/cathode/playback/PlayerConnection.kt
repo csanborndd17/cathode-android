@@ -50,6 +50,7 @@ data class PlaybackState(
     val shuffleEnabled: Boolean = false,
     val queue: List<QueueEntry> = emptyList(),
     val sleepTimerEndEpochMs: Long = 0,
+    val sleepTimerPresetsSeconds: List<Long> = emptyList(),
     val playbackError: String? = null,
 )
 
@@ -130,8 +131,30 @@ class PlayerConnection(context: Context) : Player.Listener {
     }
 
     fun setSleepTimer(minutes: Int) {
-        val end = if (minutes <= 0) 0L else System.currentTimeMillis() + minutes * 60_000L
+        setSleepTimerSeconds(minutes.toLong() * 60L)
+    }
+
+    fun setSleepTimerSeconds(seconds: Long) {
+        val end = if (seconds <= 0) 0L else System.currentTimeMillis() + seconds * 1_000L
         playbackPreferences.edit().putLong("sleep_end", end).apply()
+        publishState()
+    }
+
+    fun setSleepTimerAt(epochMs: Long) {
+        playbackPreferences.edit().putLong("sleep_end", epochMs.coerceAtLeast(System.currentTimeMillis())).apply()
+        publishState()
+    }
+
+    fun addSleepTimerPreset(seconds: Long) {
+        if (seconds <= 0) return
+        val presets = playbackPreferences.getStringSet("sleep_presets", emptySet()).orEmpty() + seconds.toString()
+        playbackPreferences.edit().putStringSet("sleep_presets", presets).apply()
+        publishState()
+    }
+
+    fun removeSleepTimerPreset(seconds: Long) {
+        val presets = playbackPreferences.getStringSet("sleep_presets", emptySet()).orEmpty() - seconds.toString()
+        playbackPreferences.edit().putStringSet("sleep_presets", presets).apply()
         publishState()
     }
 
@@ -207,6 +230,8 @@ class PlayerConnection(context: Context) : Player.Listener {
                 queue = queue,
                 sleepTimerEndEpochMs = playbackPreferences.getLong("sleep_end", 0L)
                     .takeIf { it > System.currentTimeMillis() } ?: 0L,
+                sleepTimerPresetsSeconds = playbackPreferences.getStringSet("sleep_presets", emptySet()).orEmpty()
+                    .mapNotNull(String::toLongOrNull).filter { it > 0 }.sorted(),
                 playbackError = playbackError,
             )
         }
