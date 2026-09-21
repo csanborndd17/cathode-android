@@ -69,9 +69,9 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
             item {
                 SettingSection("Custom accent")
                 val preview = Color(accentRed, accentGreen, accentBlue, 1f)
-                Box(
-                    Modifier.size(76.dp).background(preview, CircleShape).align(Alignment.CenterHorizontally),
-                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Box(Modifier.size(76.dp).background(preview, CircleShape))
+                }
                 ColorChannelSlider("Red", accentRed) { accentRed = it }
                 ColorChannelSlider("Green", accentGreen) { accentGreen = it }
                 ColorChannelSlider("Blue", accentBlue) { accentBlue = it }
