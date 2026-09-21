@@ -1,6 +1,9 @@
 package com.twelvepts.cathode.ui
 
 import android.view.HapticFeedbackConstants
+import android.content.Context
+import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -59,25 +64,31 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import com.twelvepts.cathode.playback.AudioLabState
 import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
     val view = LocalView.current
     var showQueue by remember { mutableStateOf(false) }
+    var showAudioLab by remember { mutableStateOf(false) }
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    BackHandler { if (showQueue) showQueue = false else onDismiss() }
+    BackHandler { when { showAudioLab -> showAudioLab = false; showQueue -> showQueue = false; else -> onDismiss() } }
 
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Box(Modifier.fillMaxSize()) {
@@ -117,7 +128,10 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                     )
-                    IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Open queue", tint = CathodeCyan) }
+                    Row {
+                        IconButton(onClick = { showAudioLab = true }) { Icon(Icons.Default.Equalizer, "Open Audio Lab", tint = CathodeCyan) }
+                        IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Open queue", tint = CathodeCyan) }
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
                 Crossfade(
@@ -221,6 +235,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         )
                     }
                 }
+                AudioDetailsCard(state)
                 Text(
                     "LOCAL PLAYBACK",
                     color = CathodeDim,
@@ -232,6 +247,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
         }
     }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
+    if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
 }
 
 @Composable
@@ -281,3 +297,106 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
         }
     }
 }
+
+
+private data class AudioDetails(val sampleRate: String = "—", val bitrate: String = "—", val bitDepth: String = "—")
+
+@Composable
+private fun AudioDetailsCard(state: PlaybackState) {
+    val context = LocalContext.current
+    val entry = state.queue.getOrNull(state.mediaItemIndex)
+    var details by remember(entry?.sourceUri) { mutableStateOf(AudioDetails()) }
+    LaunchedEffect(entry?.sourceUri) {
+        val uri = entry?.sourceUri ?: return@LaunchedEffect
+        details = withContext(Dispatchers.IO) {
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, uri)
+                    AudioDetails(
+                        sampleRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull()?.let { "${it / 1000.0} kHz" } ?: "—",
+                        bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toIntOrNull()?.let { "${it / 1000} kbps" } ?: "—",
+                        bitDepth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)?.let { "$it-bit" } ?: "—",
+                    )
+                } finally { retriever.release() }
+            }.getOrDefault(AudioDetails())
+        }
+    }
+    val manager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val route = when {
+        manager.isBluetoothA2dpOn -> "Bluetooth"
+        manager.isWiredHeadsetOn -> "Wired / USB audio"
+        else -> "Device output"
+    }
+    Card(Modifier.fillMaxWidth().padding(top = 18.dp)) {
+        Column(Modifier.padding(14.dp)) {
+            Text("SIGNAL DETAILS", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Text(listOf(entry?.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO", details.sampleRate, details.bitDepth, details.bitrate).joinToString(" · "), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+            Text(route, color = CathodeDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun AudioLabScreen(player: PlayerConnection, onClose: () -> Unit) {
+    val state by player.audioLab.collectAsStateWithLifecycle()
+    Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Back to now playing", tint = CathodeCyan) }
+                Column(Modifier.weight(1f)) {
+                    Text("AUDIO LAB", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                    Text("Output equalizer", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                }
+                Switch(checked = state.enabled, onCheckedChange = player::setEqualizerEnabled, enabled = state.available)
+            }
+            if (!state.available) {
+                Text("This output does not expose an Android audio-effects session. Equalizer controls are unavailable for this route.", color = CathodeMuted, modifier = Modifier.padding(20.dp))
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    item {
+                        Text("PRESETS", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(state.presets.size) { index ->
+                                AssistChip(onClick = { player.useEqualizerPreset(index) }, label = { Text(state.presets[index]) }, enabled = state.enabled)
+                            }
+                        }
+                    }
+                    item {
+                        Text("FREQUENCY BANDS", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                        state.bandLevels.forEachIndexed { index, level ->
+                            val frequency = state.centerFrequenciesHz.getOrNull(index) ?: 0
+                            Column {
+                                Row(Modifier.fillMaxWidth()) {
+                                    Text(frequencyLabel(frequency), Modifier.weight(1f))
+                                    Text("${level / 100f} dB", color = CathodeMuted)
+                                }
+                                Slider(
+                                    value = level.toFloat(),
+                                    onValueChange = { player.setBandLevel(index, it.toInt().toShort()) },
+                                    valueRange = state.minimumLevel.toFloat()..state.maximumLevel.toFloat(),
+                                    enabled = state.enabled,
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Text("BASS BOOST", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                        Slider(
+                            value = state.bassBoost.toFloat(),
+                            onValueChange = { player.setBassBoost(it.toInt().toShort()) },
+                            valueRange = 0f..1000f,
+                            enabled = state.enabled,
+                        )
+                        Text("${state.bassBoost / 10}%", color = CathodeMuted)
+                    }
+                    item {
+                        Text("Audio effects depend on Android, the decoder, and the connected output. Some Bluetooth and USB devices may apply their own processing afterward.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 24.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun frequencyLabel(hz: Int): String = if (hz >= 1000) "${hz / 1000f} kHz" else "$hz Hz"

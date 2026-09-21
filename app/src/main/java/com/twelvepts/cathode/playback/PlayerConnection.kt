@@ -2,9 +2,11 @@ package com.twelvepts.cathode.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 import android.net.Uri
 import androidx.core.content.ContextCompat
-import androidx.media3.common.MediaItem
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -19,6 +21,19 @@ data class QueueEntry(
     val title: String,
     val artist: String,
     val artworkUri: Uri?,
+    val mimeType: String? = null,
+    val sourceUri: Uri? = null,
+)
+
+data class AudioLabState(
+    val available: Boolean = false,
+    val enabled: Boolean = false,
+    val bandLevels: List<Short> = emptyList(),
+    val centerFrequenciesHz: List<Int> = emptyList(),
+    val minimumLevel: Short = -1500,
+    val maximumLevel: Short = 1500,
+    val presets: List<String> = emptyList(),
+    val bassBoost: Short = 0,
 )
 
 data class PlaybackState(
@@ -39,8 +54,13 @@ class PlayerConnection(context: Context) : Player.Listener {
     private val appContext = context.applicationContext
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _audioLab = MutableStateFlow(AudioLabState())
+    val audioLab: StateFlow<AudioLabState> = _audioLab.asStateFlow()
     private val controllerFuture: ListenableFuture<MediaController>
     private var controller: MediaController? = null
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private val audioPreferences = appContext.getSharedPreferences("audio_lab", Context.MODE_PRIVATE)
 
     init {
         val token = SessionToken(appContext, ComponentName(appContext, CathodePlaybackService::class.java))
@@ -49,6 +69,7 @@ class PlayerConnection(context: Context) : Player.Listener {
             runCatching { controllerFuture.get() }.getOrNull()?.let {
                 controller = it
                 it.addListener(this)
+                attachAudioLab(it.audioSessionId)
                 publishState()
             }
         }, ContextCompat.getMainExecutor(appContext))
@@ -63,6 +84,10 @@ class PlayerConnection(context: Context) : Player.Listener {
         }
     }
 
+    fun addToQueue(track: AudioTrack) { controller?.addMediaItem(track.toMediaItem()) }
+    fun playNext(track: AudioTrack) {
+        controller?.let { it.addMediaItem((it.currentMediaItemIndex + 1).coerceAtMost(it.mediaItemCount), track.toMediaItem()) }
+    }
     fun togglePlayPause() = controller?.let { if (it.isPlaying) it.pause() else it.play() }
     fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
     fun next() = controller?.seekToNextMediaItem()
@@ -78,9 +103,7 @@ class PlayerConnection(context: Context) : Player.Listener {
         if (index in 0 until it.mediaItemCount) it.removeMediaItem(index)
     }
     fun moveQueueItem(from: Int, to: Int) = controller?.let {
-        if (from in 0 until it.mediaItemCount && to in 0 until it.mediaItemCount && from != to) {
-            it.moveMediaItem(from, to)
-        }
+        if (from in 0 until it.mediaItemCount && to in 0 until it.mediaItemCount && from != to) it.moveMediaItem(from, to)
     }
     fun clearUpcoming() = controller?.let {
         val current = it.currentMediaItemIndex
@@ -92,6 +115,45 @@ class PlayerConnection(context: Context) : Player.Listener {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+    }
+
+    fun setEqualizerEnabled(enabled: Boolean) {
+        equalizer?.enabled = enabled
+        bassBoost?.enabled = enabled
+        audioPreferences.edit().putBoolean("enabled", enabled).apply()
+        publishAudioLab()
+    }
+
+    fun setBandLevel(band: Int, level: Short) {
+        equalizer?.let { effect ->
+            if (band in 0 until effect.numberOfBands.toInt()) {
+                val applied = level.coerceIn(effect.bandLevelRange[0], effect.bandLevelRange[1])
+                effect.setBandLevel(band.toShort(), applied)
+                audioPreferences.edit().putInt("band_" + band, applied.toInt()).apply()
+                publishAudioLab()
+            }
+        }
+    }
+
+    fun useEqualizerPreset(preset: Int) {
+        equalizer?.let { effect ->
+            if (preset in 0 until effect.numberOfPresets.toInt()) {
+                effect.usePreset(preset.toShort())
+                val editor = audioPreferences.edit()
+                for (band in 0 until effect.numberOfBands.toInt()) {
+                    editor.putInt("band_" + band, effect.getBandLevel(band.toShort()).toInt())
+                }
+                editor.apply()
+                publishAudioLab()
+            }
+        }
+    }
+
+    fun setBassBoost(strength: Short) {
+        val applied = strength.coerceIn(0, 1000)
+        bassBoost?.setStrength(applied)
+        audioPreferences.edit().putInt("bass", applied.toInt()).apply()
+        publishAudioLab()
     }
 
     fun refreshPosition() = publishState()
@@ -106,6 +168,8 @@ class PlayerConnection(context: Context) : Player.Listener {
                     title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown title" },
                     artist = item.mediaMetadata.artist?.toString().orEmpty().ifBlank { "Unknown artist" },
                     artworkUri = item.mediaMetadata.artworkUri,
+                    mimeType = item.localConfiguration?.mimeType,
+                    sourceUri = item.localConfiguration?.uri,
                 )
             }
             _state.value = PlaybackState(
@@ -125,9 +189,56 @@ class PlayerConnection(context: Context) : Player.Listener {
     }
 
     override fun onEvents(player: Player, events: Player.Events) = publishState()
+    override fun onAudioSessionIdChanged(audioSessionId: Int) { attachAudioLab(audioSessionId) }
+
+    private fun attachAudioLab(audioSessionId: Int) {
+        equalizer?.release()
+        bassBoost?.release()
+        equalizer = null
+        bassBoost = null
+        if (audioSessionId == C.AUDIO_SESSION_ID_UNSET || audioSessionId == 0) {
+            _audioLab.value = AudioLabState()
+            return
+        }
+        runCatching {
+            equalizer = Equalizer(0, audioSessionId).apply {
+                for (band in 0 until numberOfBands.toInt()) {
+                    val saved = audioPreferences.getInt("band_" + band, getBandLevel(band.toShort()).toInt()).toShort()
+                    setBandLevel(band.toShort(), saved.coerceIn(bandLevelRange[0], bandLevelRange[1]))
+                }
+                enabled = audioPreferences.getBoolean("enabled", false)
+            }
+            bassBoost = BassBoost(0, audioSessionId).apply {
+                setStrength(audioPreferences.getInt("bass", 0).toShort().coerceIn(0, 1000))
+                enabled = audioPreferences.getBoolean("enabled", false)
+            }
+            publishAudioLab()
+        }.onFailure { _audioLab.value = AudioLabState() }
+    }
+
+    private fun publishAudioLab() {
+        val effect = equalizer ?: run {
+            _audioLab.value = AudioLabState()
+            return
+        }
+        _audioLab.value = AudioLabState(
+            available = true,
+            enabled = effect.enabled,
+            bandLevels = (0 until effect.numberOfBands.toInt()).map { effect.getBandLevel(it.toShort()) },
+            centerFrequenciesHz = (0 until effect.numberOfBands.toInt()).map { effect.getCenterFreq(it.toShort()) / 1000 },
+            minimumLevel = effect.bandLevelRange[0],
+            maximumLevel = effect.bandLevelRange[1],
+            presets = (0 until effect.numberOfPresets.toInt()).map { effect.getPresetName(it.toShort()) },
+            bassBoost = bassBoost?.roundedStrength ?: 0,
+        )
+    }
 
     fun release() {
         controller?.removeListener(this)
+        equalizer?.release()
+        bassBoost?.release()
+        equalizer = null
+        bassBoost = null
         MediaController.releaseFuture(controllerFuture)
         controller = null
     }
