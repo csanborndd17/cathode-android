@@ -5,6 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.SkipNext
@@ -66,8 +70,13 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,6 +107,8 @@ fun HomeScreen(
     onProfile: () -> Unit,
     onOpenLibrary: (LibraryCategory) -> Unit,
     currentTrackKey: String?,
+    currentIsPlaying: Boolean,
+    onTogglePlayback: () -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
 ) {
@@ -134,16 +145,23 @@ fun HomeScreen(
         }
         if (hero != null && visible("Continue listening")) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Card(onClick = { onPlay(hero) }, modifier = Modifier.fillMaxWidth().height(220.dp)) {
+                val heroIsCurrent = current?.stableKey == hero.stableKey
+                Card(onClick = { if (heroIsCurrent) onTogglePlayback() else onPlay(hero) }, modifier = Modifier.fillMaxWidth().height(220.dp)) {
                     Box(Modifier.fillMaxSize()) {
                         AsyncImage(hero.artworkUri, "${hero.album} cover", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, CathodeBlack.copy(alpha = .92f)))))
-                        Column(Modifier.align(Alignment.BottomStart).padding(18.dp)) {
+                        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 18.dp, end = 82.dp, bottom = 18.dp)) {
                             Text(if (current != null) "NOW TRANSMITTING" else "CONTINUE LISTENING", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            Text(hero.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${hero.artist} · ${hero.album}", color = CathodeMuted, maxLines = 1)
+                            MarqueeText(hero.title, MaterialTheme.typography.headlineMedium, CathodeText, FontWeight.Bold)
+                            MarqueeText("${hero.artist} · ${hero.album}", MaterialTheme.typography.bodyMedium, CathodeMuted)
                         }
-                        Icon(Icons.Default.PlayArrow, "Play", tint = CathodeBlack, modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp).size(52.dp).clip(CircleShape).background(CathodeCyan).padding(10.dp))
+                        IconButton(
+                            onClick = { if (heroIsCurrent) onTogglePlayback() else onPlay(hero) },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp).size(52.dp).clip(CircleShape).background(CathodeCyan),
+                        ) {
+                            val playing = heroIsCurrent && currentIsPlaying
+                            Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = CathodeBlack, modifier = Modifier.size(30.dp))
+                        }
                     }
                 }
             }
@@ -151,10 +169,10 @@ fun HomeScreen(
         if (state.tracks.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { EmptyLibrary(state.permissionGranted) }
         } else if (visible("Quick transmission")) {
-            item { HomeMetricCard("SHUFFLE", "${state.tracks.size} tracks", Icons.Default.PlayArrow) { onPlay(state.tracks.random()) } }
-            item { HomeMetricCard("FAVORITES", "${state.favoriteKeys.size} saved", Icons.Default.Favorite) { onOpenLibrary(LibraryCategory.FAVORITES) } }
-            item { HomeMetricCard("LOSSLESS", "${lossless.size} indexed", Icons.Default.Star) { onOpenLibrary(LibraryCategory.SONGS) } }
-            item { HomeMetricCard("PLAYLISTS", "${state.playlists.size} collections", Icons.Default.PlaylistAdd) { onOpenLibrary(LibraryCategory.PLAYLISTS) } }
+            item { HomeMetricCard("SHUFFLE", "${state.tracks.size} tracks", Icons.Default.PlayArrow, 0) { onPlay(state.tracks.random()) } }
+            item { HomeMetricCard("FAVORITES", "${state.favoriteKeys.size} saved", Icons.Default.Favorite, 1) { onOpenLibrary(LibraryCategory.FAVORITES) } }
+            item { HomeMetricCard("LOSSLESS", "${lossless.size} indexed", Icons.Default.Star, 2) { onOpenLibrary(LibraryCategory.SONGS) } }
+            item { HomeMetricCard("PLAYLISTS", "${state.playlists.size} collections", Icons.Default.PlaylistAdd, 3) { onOpenLibrary(LibraryCategory.PLAYLISTS) } }
         }
         if (visible("Transmission snapshot")) {
             item(span = { GridItemSpan(maxLineSpan) }) { HomeSectionTitle("Transmission snapshot") }
@@ -188,13 +206,41 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeMetricCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun HomeMetricCard(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, pattern: Int, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth().height(112.dp)) {
-        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Icon(icon, null, tint = CathodeCyan)
-            Column { Text(title, fontWeight = FontWeight.Bold); Text(detail, color = CathodeMuted, style = MaterialTheme.typography.labelMedium) }
+        Box(Modifier.fillMaxSize().background(CathodePanel)) {
+            Canvas(Modifier.fillMaxSize()) {
+                val accent = when (pattern) { 1 -> Color(0xFF66FFF0); 2 -> Color(0xFF4CB7FF); 3 -> Color(0xFF99FFE8); else -> CathodeCyan }
+                when (pattern) {
+                    0 -> for (x in -size.height.toInt() until size.width.toInt() step 22) drawLine(accent.copy(alpha = .12f), androidx.compose.ui.geometry.Offset(x.toFloat(), size.height), androidx.compose.ui.geometry.Offset(x + size.height, 0f), 2f)
+                    1 -> for (x in 12..size.width.toInt() step 26) for (y in 10..size.height.toInt() step 26) drawCircle(accent.copy(alpha = if ((x + y) % 52 == 0) .18f else .08f), if ((x + y) % 52 == 0) 5f else 2.5f, androidx.compose.ui.geometry.Offset(x.toFloat(), y.toFloat()))
+                    2 -> repeat(5) { ring -> drawCircle(accent.copy(alpha = .12f - ring * .015f), 24f + ring * 22f, androidx.compose.ui.geometry.Offset(size.width, 0f), style = androidx.compose.ui.graphics.drawscope.Stroke(2f)) }
+                    else -> { for (x in 0..size.width.toInt() step 32) drawLine(accent.copy(alpha = .07f), androidx.compose.ui.geometry.Offset(x.toFloat(), 0f), androidx.compose.ui.geometry.Offset(x.toFloat(), size.height), 1f); for (y in 0..size.height.toInt() step 32) drawLine(accent.copy(alpha = .07f), androidx.compose.ui.geometry.Offset(0f, y.toFloat()), androidx.compose.ui.geometry.Offset(size.width, y.toFloat()), 1f) }
+                }
+            }
+            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Icon(icon, null, tint = CathodeCyan)
+                Column { Text(title, fontWeight = FontWeight.Bold); Text(detail, color = CathodeMuted, style = MaterialTheme.typography.labelMedium) }
+            }
         }
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MarqueeText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, weight: FontWeight? = null) {
+    Text(
+        text = text,
+        style = style,
+        color = color,
+        fontWeight = weight,
+        maxLines = 1,
+        modifier = Modifier.fillMaxWidth().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                drawRect(Brush.horizontalGradient(0f to Color.Transparent, .07f to Color.Black, .90f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+            }.basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 1200),
+    )
 }
 
 @Composable

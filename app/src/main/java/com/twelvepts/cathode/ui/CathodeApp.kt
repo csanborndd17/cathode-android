@@ -188,6 +188,8 @@ fun CathodeApp(
                                 selectTab(CathodeTab.Library)
                             },
                             currentTrackKey = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId,
+                            currentIsPlaying = playback.isPlaying,
+                            onTogglePlayback = player::togglePlayPause,
                             settings = settings,
                             store = settingsStore,
                         )

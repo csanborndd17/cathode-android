@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlin.math.sin
+import kotlin.math.cos
 
 @Composable
 fun ArtworkBackdrop(artworkUri: Uri?, animations: Boolean, modifier: Modifier = Modifier) {
@@ -56,20 +57,25 @@ fun ArtworkBackdrop(artworkUri: Uri?, animations: Boolean, modifier: Modifier = 
 fun SignalDust(animations: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "signal-dust")
     val phase by transition.animateFloat(
-        0f, 1f,
+        0f, 6.2831855f,
         infiniteRepeatable(tween(if (animations) 18_000 else 1_000_000), RepeatMode.Restart),
         label = "dust-phase",
     )
     Canvas(modifier.fillMaxSize()) {
         repeat(64) { index ->
             val seed = index * 47.17f
-            val x = ((seed * 29f) % size.width + phase * size.width * (.04f + index % 4 * .012f)) % size.width
-            val baseY = (seed * 13f) % size.height
-            val y = (baseY - phase * size.height * (.08f + index % 5 * .015f) + size.height) % size.height
-            val shimmer = .35f + .65f * ((sin(phase * 6.28f + index) + 1f) / 2f)
+            val margin = 24f
+            val spanX = (size.width - margin * 2f).coerceAtLeast(1f)
+            val spanY = (size.height - margin * 2f).coerceAtLeast(1f)
+            val baseX = margin + (seed * 29f) % spanX
+            val baseY = margin + (seed * 13f) % spanY
+            val orbit = phase * (1f + index % 3 * .25f) + index * .71f
+            val x = (baseX + sin(orbit) * (10f + index % 5 * 4f)).coerceIn(0f, size.width)
+            val y = (baseY + cos(orbit) * (16f + index % 6 * 5f)).coerceIn(0f, size.height)
+            val shimmer = .42f + .58f * ((sin(phase + index) + 1f) / 2f)
             drawCircle(
                 color = if (index % 5 == 0) CathodeCyan.copy(alpha = .30f * shimmer) else Color.White.copy(alpha = .14f * shimmer),
-                radius = 4.5f + index % 6,
+                radius = 7.5f + index % 8,
                 center = Offset(x, y),
             )
         }

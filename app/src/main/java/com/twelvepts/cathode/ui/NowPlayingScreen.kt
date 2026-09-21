@@ -181,6 +181,8 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                 Spacer(Modifier.height(10.dp))
                 WaveformScrubber(
                     title = state.title,
+                    cacheKey = state.queue.getOrNull(state.mediaItemIndex)?.mediaId,
+                    sourceUri = state.queue.getOrNull(state.mediaItemIndex)?.sourceUri,
                     positionMs = state.positionMs,
                     durationMs = state.durationMs,
                     isPlaying = state.isPlaying,
@@ -319,32 +321,47 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
 @Composable
 private fun WaveformScrubber(
     title: String,
+    cacheKey: String?,
+    sourceUri: android.net.Uri?,
     positionMs: Long,
     durationMs: Long,
     isPlaying: Boolean,
     onSeek: (Long) -> Unit,
 ) {
+    val context = LocalContext.current
     var widthPx by remember { mutableStateOf(1f) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val seed = remember(title) { abs(title.hashCode() % 23) + 5 }
-    val amplitudes = remember(seed) {
+    val placeholder = remember(seed) {
         List(84) { index ->
             (.20f + abs(sin((index + 1) * seed * .071f)).toFloat() * .68f + (index % 7) * .012f).coerceAtMost(1f)
         }
     }
-    fun seekAt(x: Float) {
-        if (durationMs > 0) onSeek(((x / widthPx).coerceIn(0f, 1f) * durationMs).toLong())
+    var amplitudes by remember(cacheKey) { mutableStateOf(placeholder) }
+    LaunchedEffect(cacheKey, sourceUri) {
+        amplitudes = placeholder
+        if (cacheKey != null && sourceUri != null) {
+            withContext(Dispatchers.IO) { WaveformRepository.load(context, cacheKey, sourceUri) }?.let { amplitudes = it }
+        }
     }
-    Canvas(
-        Modifier
-            .fillMaxWidth()
+    fun seekAt(x: Float) {
+        val fraction = (x / widthPx).coerceIn(0f, 1f)
+        dragFraction = fraction
+        if (durationMs > 0) onSeek((fraction * durationMs).toLong())
+    }
+    Box(Modifier.fillMaxWidth().height(84.dp)) {
+      Canvas(
+        Modifier.fillMaxWidth()
             .height(74.dp)
             .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-            .pointerInput(durationMs) { detectTapGestures { seekAt(it.x) } }
+            .pointerInput(durationMs) { detectTapGestures(onPress = { seekAt(it.x); tryAwaitRelease(); dragFraction = null }) }
             .pointerInput(durationMs) {
                 detectDragGestures(
                     onDragStart = { seekAt(it.x) },
                     onDrag = { change, _ -> seekAt(change.position.x) },
+                    onDragEnd = { dragFraction = null },
+                    onDragCancel = { dragFraction = null },
                 )
             }
             .semantics {
@@ -358,7 +375,12 @@ private fun WaveformScrubber(
             val fraction = index.toFloat() / amplitudes.lastIndex
             val active = fraction <= progress
             val baseHeight = size.height * amplitude
-            val pulse = if (isPlaying && abs(fraction - progress) < .018f) 1.18f else 1f
+            val touch = dragFraction
+            val pulse = when {
+                touch != null && abs(fraction - touch) < .07f -> 1.32f
+                isPlaying && abs(fraction - progress) < .018f -> 1.18f
+                else -> 1f
+            }
             val height = (baseHeight * pulse).coerceAtMost(size.height)
             val left = index * (barWidth + gap)
             drawRoundRect(
@@ -368,6 +390,17 @@ private fun WaveformScrubber(
                 cornerRadius = CornerRadius(barWidth, barWidth),
             )
         }
+      }
+      dragFraction?.let { fraction ->
+          Text(
+              formatDuration((fraction * durationMs).toLong()),
+              color = CathodeBlack,
+              style = MaterialTheme.typography.labelSmall,
+              modifier = Modifier.align(Alignment.TopStart)
+                  .padding(start = ((fraction * 280f).coerceIn(0f, 260f)).dp)
+                  .background(CathodeCyan, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+          )
+      }
     }
 }
 
