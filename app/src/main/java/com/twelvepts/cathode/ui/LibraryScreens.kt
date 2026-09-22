@@ -94,7 +94,6 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.model.AudioTrack
-import com.twelvepts.cathode.model.AudioQuality
 import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -301,8 +300,6 @@ fun LibraryScreen(
     onDeletePlaylist: (Long) -> Unit,
     onAddToPlaylist: PlaylistAdder,
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
-    onAnalyzeLossless: () -> Unit,
-    onCancelAnalysis: () -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onProfile: () -> Unit,
     settings: CathodeSettings,
@@ -320,7 +317,6 @@ fun LibraryScreen(
     var creatingBulkPlaylist by remember { mutableStateOf(false) }
     var bulkPlaylistName by remember { mutableStateOf("") }
     var confirmingDelete by remember { mutableStateOf(false) }
-    var qualityFilter by remember { mutableStateOf<AudioQuality?>(null) }
     val context = LocalContext.current
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -336,20 +332,19 @@ fun LibraryScreen(
         }
     }
     val sorted = remember(filteredTracks, settings.librarySort) { sortTracks(filteredTracks, settings.librarySort) }
-    val qualitySorted = remember(sorted, qualityFilter) { qualityFilter?.let { quality -> sorted.filter { it.audioQuality == quality } } ?: sorted }
-    val favorites = qualitySorted.filter { it.stableKey in state.favoriteKeys }
-    val groups = remember(qualitySorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
+    val favorites = sorted.filter { it.stableKey in state.favoriteKeys }
+    val groups = remember(sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
         when (settings.libraryCategory) {
             LibraryCategory.SONGS, LibraryCategory.FAVORITES -> emptyList()
-            LibraryCategory.ALBUMS -> qualitySorted.groupBy { "${it.artist}\u0000${it.album}" }
-                .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, "${tracks.first().artist} · ${albumQualityLabel(tracks)}", tracks) }
-            LibraryCategory.ARTISTS -> qualitySorted.groupBy(AudioTrack::artist)
+            LibraryCategory.ALBUMS -> sorted.groupBy { "${it.artist}\u0000${it.album}" }
+                .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, "${tracks.first().artist} · ${tracks.size} songs", tracks) }
+            LibraryCategory.ARTISTS -> sorted.groupBy(AudioTrack::artist)
                 .map { (key, tracks) -> LibraryGroup(key, key, "${tracks.size} songs", tracks) }
-            LibraryCategory.FOLDERS -> qualitySorted.groupBy { it.relativePath ?: "Unknown folder" }
+            LibraryCategory.FOLDERS -> sorted.groupBy { it.relativePath ?: "Unknown folder" }
                 .map { (key, tracks) -> LibraryGroup(key, key.trimEnd('/').substringAfterLast('/'), "${tracks.size} songs", tracks) }
             LibraryCategory.PLAYLISTS -> state.playlists.map { playlist ->
                 val keys = state.playlistTrackKeys[playlist.id].orEmpty()
-                val tracks = keys.mapNotNull { key -> qualitySorted.firstOrNull { it.stableKey == key } }
+                val tracks = keys.mapNotNull { key -> sorted.firstOrNull { it.stableKey == key } }
                 LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks)
             }
         }.sortedBy { it.title.lowercase() }
@@ -408,34 +403,6 @@ fun LibraryScreen(
             placeholder = { Text("Search songs, artists, albums, and tags") }, singleLine = true,
             leadingIcon = { Icon(Icons.Default.Search, null) },
         )
-        if (detail == null) LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        ) {
-            item { FilterChip(selected = qualityFilter == null, onClick = { qualityFilter = null }, label = { Text("All quality") }) }
-            items(AudioQuality.entries) { quality ->
-                FilterChip(selected = qualityFilter == quality, onClick = { qualityFilter = quality }, label = { Text(quality.label) })
-            }
-        }
-        if (detail == null) {
-            if (state.analysisRunning) {
-                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Analyzing lossless integrity ${state.analysisCompleted}/${state.analysisTotal}", Modifier.weight(1f), color = CathodeCyan)
-                        TextButton(onClick = onCancelAnalysis) { Text("Cancel") }
-                    }
-                    LinearProgressIndicator(
-                        progress = { if (state.analysisTotal > 0) state.analysisCompleted.toFloat() / state.analysisTotal else 0f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = CathodeCyan,
-                    )
-                }
-            } else {
-                TextButton(onClick = onAnalyzeLossless, modifier = Modifier.padding(bottom = 6.dp)) {
-                    Text("Analyze lossless integrity")
-                }
-            }
-        }
         when {
             !state.permissionGranted -> PermissionPanel(requestPermission)
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = CathodeCyan) }
@@ -486,7 +453,7 @@ fun LibraryScreen(
                             label = { Text(if (settings.libraryGrid) "Grid" else "List") })
                     }
                 }
-                val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else qualitySorted
+                val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else sorted
                 if (settings.libraryCategory in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
                     if (directTracks.isEmpty()) MessagePanel("Nothing here yet", "Favorite songs with the star button.", CathodeMuted)
                     else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -582,14 +549,6 @@ fun LibraryScreen(
 private fun Set<String>.toggle(key: String): Set<String> = if (key in this) this - key else this + key
 
 private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
-
-private fun albumQualityLabel(tracks: List<AudioTrack>): String = when {
-    tracks.any { it.audioQuality == AudioQuality.SUSPECTED_TRANSCODE } -> "Suspected transcode"
-    tracks.all { it.audioQuality == AudioQuality.HI_RES } -> "Hi-Res Lossless"
-    tracks.all { it.audioQuality in listOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES) } -> "Lossless"
-    tracks.any { it.audioQuality == AudioQuality.LOSSY } -> "Mixed/Lossy"
-    else -> "Quality unknown"
-}
 
 @Composable
 private fun LibraryGroupRow(group: LibraryGroup, onClick: () -> Unit) {
@@ -707,16 +666,6 @@ private fun TrackRow(
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${track.artist} · ${track.album}", color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (track.tags.isNotEmpty()) Text(track.tags, color = CathodeDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-            Text(
-                track.audioQuality.label,
-                color = when (track.audioQuality) {
-                    AudioQuality.HI_RES, AudioQuality.LOSSLESS -> CathodeCyan
-                    AudioQuality.LOSSY, AudioQuality.SUSPECTED_TRANSCODE -> CathodeError
-                    AudioQuality.UNKNOWN -> CathodeDim
-                },
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-            )
         }
         if (onPin != null) IconButton(onClick = onPin) { Icon(if (pinned) Icons.Default.Star else Icons.Outlined.StarOutline, if (pinned) "Unpin" else "Pin", tint = if (pinned) CathodeCyan else CathodeMuted) }
         if (onToggleFavorite != null) IconButton(onClick = onToggleFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (favorite) "Remove favorite" else "Favorite", tint = if (favorite) CathodeCyan else CathodeMuted) }

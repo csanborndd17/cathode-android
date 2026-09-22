@@ -178,6 +178,16 @@ class AudioLibraryRepository(private val context: Context) {
         )
     }
 
+    fun clearLosslessAnalysis(tracks: List<AudioTrack>) {
+        metadata.edit().apply {
+            tracks.forEach { track ->
+                remove("${track.stableKey}.spectral.analyzed")
+                remove("${track.stableKey}.spectral.suspected")
+                remove("${track.stableKey}.spectral.cutoff")
+            }
+        }.apply()
+    }
+
     private fun String?.orUnknown(fallback: String): String =
         if (isNullOrBlank() || this == "<unknown>") fallback else this
 }

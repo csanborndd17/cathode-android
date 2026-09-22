@@ -7,6 +7,7 @@ import com.twelvepts.cathode.data.AudioLibraryRepository
 import com.twelvepts.cathode.data.CathodeLibraryDatabase
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.data.TransmissionYear
+import com.twelvepts.cathode.data.CathodeDiagnostics
 import com.twelvepts.cathode.model.AudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +51,10 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
             _library.value = runCatching { repository.loadTracks() }
                 .fold(
                     onSuccess = { tracks -> libraryState(tracks) },
-                    onFailure = { LibraryState(false, true, error = it.message ?: "Library scan failed") },
+                    onFailure = {
+                        CathodeDiagnostics.record(getApplication(), "Library", "Media scan failed", it)
+                        LibraryState(false, true, error = it.message ?: "Library scan failed")
+                    },
                 )
         }
     }
@@ -144,10 +148,15 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    fun analyzeLosslessLibrary() {
+    fun analyzeLosslessLibrary() = analyzeLosslessLibrary(force = false)
+
+    fun reanalyzeLosslessLibrary() = analyzeLosslessLibrary(force = true)
+
+    private fun analyzeLosslessLibrary(force: Boolean) {
         if (analysisJob?.isActive == true) return
+        if (force) repository.clearLosslessAnalysis(_library.value.tracks)
         val candidates = _library.value.tracks.filter {
-            it.audioQuality in listOf(com.twelvepts.cathode.model.AudioQuality.LOSSLESS, com.twelvepts.cathode.model.AudioQuality.HI_RES, com.twelvepts.cathode.model.AudioQuality.SUSPECTED_TRANSCODE) && !it.spectralAnalyzed
+            it.audioQuality in listOf(com.twelvepts.cathode.model.AudioQuality.LOSSLESS, com.twelvepts.cathode.model.AudioQuality.HI_RES, com.twelvepts.cathode.model.AudioQuality.SUSPECTED_TRANSCODE) && (force || !it.spectralAnalyzed)
         }
         analysisJob = viewModelScope.launch(Dispatchers.IO) {
             _library.value = _library.value.copy(analysisRunning = true, analysisCompleted = 0, analysisTotal = candidates.size)

@@ -30,6 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.twelvepts.cathode.playback.PlayerConnection
+import com.twelvepts.cathode.data.CathodeDiagnostics
 import com.twelvepts.cathode.ui.CathodeApp
 import com.twelvepts.cathode.ui.CathodeSettingsStore
 import com.twelvepts.cathode.ui.CathodeTheme
@@ -93,6 +94,8 @@ class MainActivity : ComponentActivity() {
                     delay(1_200)
                     viewModel.rescan()
                 }
+            } else {
+                CathodeDiagnostics.record(this@MainActivity, "Download", "$title failed (reason $reason)")
             }
         }
     }
@@ -134,6 +137,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val previousCrashHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            CathodeDiagnostics.record(this, "Crash", "Uncaught error on ${thread.name}", throwable)
+            previousCrashHandler?.uncaughtException(thread, throwable)
+        }
         enableEdgeToEdge()
         playerConnection = PlayerConnection(this)
         settingsStore = CathodeSettingsStore(this)

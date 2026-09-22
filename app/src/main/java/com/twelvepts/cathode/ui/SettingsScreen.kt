@@ -14,11 +14,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import com.twelvepts.cathode.LibraryState
+import com.twelvepts.cathode.data.CathodeDiagnostics
+import com.twelvepts.cathode.playback.PlaybackState
+import com.twelvepts.cathode.playback.PlayerConnection
 
 @Composable
-fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artworkUri: Uri?, onClose: () -> Unit) {
+fun SettingsScreen(
+    settings: CathodeSettings,
+    store: CathodeSettingsStore,
+    artworkUri: Uri?,
+    playback: PlaybackState,
+    player: PlayerConnection,
+    library: LibraryState,
+    onAnalyzeLossless: () -> Unit,
+    onReanalyzeLossless: () -> Unit,
+    onCancelAnalysis: () -> Unit,
+    onClose: () -> Unit,
+) {
     BackHandler(onBack = onClose)
+    val context = LocalContext.current
     var advanced by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    var diagnosticEntries by remember { mutableStateOf(CathodeDiagnostics.entries(context)) }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
     var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
     var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
@@ -102,6 +121,60 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
                 }
             }
             item {
+                SettingSection("Playback")
+                SettingToggle(
+                    "Soft transition",
+                    "Briefly fade at track boundaries.",
+                    playback.transitionFadeEnabled,
+                ) { player.setTransitionFade(it) }
+                if (playback.transitionFadeEnabled) {
+                    Text("${playback.transitionFadeSeconds} second fade", color = CathodeMuted)
+                    Slider(
+                        value = playback.transitionFadeSeconds.toFloat(),
+                        onValueChange = { player.setTransitionFade(true, it.toInt()) },
+                        valueRange = 1f..12f,
+                        steps = 10,
+                    )
+                }
+            }
+            item {
+                SettingSection("Audio integrity")
+                Text(
+                    "Spectral checks can flag a suspected lossy transcode, but cannot prove a file's original source. Results stay in diagnostics rather than labeling every track.",
+                    color = CathodeMuted,
+                )
+                if (library.analysisRunning) {
+                    Text("Analyzing ${library.analysisCompleted}/${library.analysisTotal}", color = CathodeCyan)
+                    LinearProgressIndicator(
+                        progress = { if (library.analysisTotal > 0) library.analysisCompleted.toFloat() / library.analysisTotal else 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TextButton(onClick = onCancelAnalysis) { Text("Cancel") }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onAnalyzeLossless) { Text("Analyze new files") }
+                        OutlinedButton(onClick = onReanalyzeLossless) { Text("Reset & reanalyze") }
+                    }
+                    val analyzed = library.tracks.count { it.spectralAnalyzed }
+                    val suspected = library.tracks.count { it.spectralAnalyzed && it.audioQuality.name == "SUSPECTED_TRANSCODE" }
+                    Text("$analyzed analyzed · $suspected suspected transcodes", color = CathodeMuted)
+                }
+            }
+            item {
+                SettingSection("Diagnostics")
+                Text("Runtime crashes, playback failures, download failures, and library scan errors are stored only on this device.", color = CathodeMuted)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        diagnosticEntries = CathodeDiagnostics.entries(context)
+                        showDiagnostics = true
+                    }) { Text("View error log") }
+                    TextButton(onClick = {
+                        CathodeDiagnostics.clear(context)
+                        diagnosticEntries = emptyList()
+                    }) { Text("Clear") }
+                }
+            }
+            item {
                 SettingSection("Home sections")
                 settings.homeSections.forEach { name ->
                     SettingToggle(name,"Show this section on Home.",name !in settings.hiddenHomeSections){visible->
@@ -117,6 +190,17 @@ fun SettingsScreen(settings: CathodeSettings, store: CathodeSettingsStore, artwo
         item { Spacer(Modifier.height(28.dp)) }
         }
     }
+    if (showDiagnostics) AlertDialog(
+        onDismissRequest = { showDiagnostics = false },
+        title = { Text("Cathode diagnostics") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (diagnosticEntries.isEmpty()) item { Text("No recorded runtime errors.", color = CathodeMuted) }
+                items(diagnosticEntries.size) { index -> Text(diagnosticEntries[index], style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showDiagnostics = false }) { Text("Done") } },
+    )
 }
 @Composable private fun SettingSection(title:String){Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)}
 @Composable private fun ColorChannelSlider(label:String,value:Float,onValue:(Float)->Unit){

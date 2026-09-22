@@ -95,7 +95,6 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.playback.AudioLabState
 import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
-import com.twelvepts.cathode.model.AudioQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -195,12 +194,6 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(state.artist, color = CathodeCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    state.audioQuality.label,
-                    color = if (state.audioQuality in listOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES)) CathodeCyan else if (state.audioQuality == AudioQuality.UNKNOWN) CathodeDim else CathodeError,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                )
                 state.playbackError?.let {
                     Text(it, color = CathodeError, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -209,19 +202,6 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         Text("ReplayGain ${"%+.2f".format(gain)} dB", Modifier.weight(1f), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                         Switch(checked = state.replayGainEnabled, onCheckedChange = player::setReplayGainEnabled)
                     }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Soft transition", Modifier.weight(1f), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
-                    Switch(checked = state.transitionFadeEnabled, onCheckedChange = { player.setTransitionFade(it) })
-                }
-                if (state.transitionFadeEnabled) {
-                    Text("${state.transitionFadeSeconds}s fade between tracks", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
-                    Slider(
-                        value = state.transitionFadeSeconds.toFloat(),
-                        onValueChange = { player.setTransitionFade(true, it.toInt()) },
-                        valueRange = 1f..12f,
-                        steps = 10,
-                    )
                 }
                 Spacer(Modifier.height(10.dp))
                 WaveformScrubber(

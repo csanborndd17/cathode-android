@@ -125,6 +125,7 @@ fun AcquireScreen() {
     var showPlaylistImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var importedTracks by remember { mutableStateOf<List<ImportedTrack>>(emptyList()) }
+    var playlistLinkNotice by remember { mutableStateOf<String?>(null) }
     var importSource by remember { mutableStateOf(discoverSources.first()) }
     var completedImports by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun closeSource() {
@@ -301,7 +302,7 @@ fun AcquireScreen() {
         title = { Text("Playlist converter") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Paste an exported track list. Use one track per line as Artist - Title, Title - Artist, or a plain search phrase.", color = CathodeMuted)
+                Text("Paste a track list, or an authorized playlist link once its provider is connected. Cathode reads names only; it never downloads from Spotify or YouTube.", color = CathodeMuted)
                 OutlinedTextField(
                     value = importText,
                     onValueChange = { importText = it },
@@ -309,8 +310,26 @@ fun AcquireScreen() {
                     minLines = 5,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(onClick = { importedTracks = parsePlaylistText(importText) }, enabled = importText.isNotBlank()) {
+                Button(onClick = {
+                    val link = importText.trim().takeIf { it.startsWith("https://") }
+                    if (link != null) {
+                        importedTracks = emptyList()
+                        playlistLinkNotice = when {
+                            "spotify.com/" in link -> "Spotify requires an authorized account connection. Cathode will not scrape the Spotify webpage. Add a Spotify developer Client ID in Settings after the account connection ships."
+                            "youtube.com/" in link || "youtu.be/" in link -> "YouTube playlist lookup requires an authorized YouTube Data API connection. Cathode will not scrape the webpage."
+                            else -> "This playlist provider is not connected. Export the playlist as Artist - Title lines for now."
+                        }
+                    } else {
+                        playlistLinkNotice = null
+                        importedTracks = parsePlaylistText(importText)
+                    }
+                }, enabled = importText.isNotBlank()) {
                     Text("Parse tracks")
+                }
+                playlistLinkNotice?.let {
+                    Surface(color = CathodePanel, shape = MaterialTheme.shapes.medium) {
+                        Text(it, color = CathodeMuted, modifier = Modifier.padding(12.dp))
+                    }
                 }
                 if (importedTracks.isNotEmpty()) {
                     Text("${completedImports.size}/${importedTracks.size} searches opened", color = CathodeCyan)

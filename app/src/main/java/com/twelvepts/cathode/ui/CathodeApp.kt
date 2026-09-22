@@ -212,8 +212,6 @@ fun CathodeApp(
                             onDeletePlaylist = viewModel::deletePlaylist,
                             onAddToPlaylist = viewModel::addToPlaylist,
                             onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
-                            onAnalyzeLossless = viewModel::analyzeLosslessLibrary,
-                            onCancelAnalysis = viewModel::cancelLosslessAnalysis,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onProfile = { scope.launch { drawerState.open() } },
                             settings = settings,
@@ -243,7 +241,18 @@ fun CathodeApp(
         exit = fadeOut(tween(overlayDuration)) + slideOutHorizontally(tween(overlayDuration)) { it / 6 },
         label = "settings-overlay",
     ) {
-        SettingsScreen(settings, settingsStore, playback.artworkUri, onClose = { showSettings = false })
+        SettingsScreen(
+            settings = settings,
+            store = settingsStore,
+            artworkUri = playback.artworkUri,
+            playback = playback,
+            player = player,
+            library = library,
+            onAnalyzeLossless = viewModel::analyzeLosslessLibrary,
+            onReanalyzeLossless = viewModel::reanalyzeLosslessLibrary,
+            onCancelAnalysis = viewModel::cancelLosslessAnalysis,
+            onClose = { showSettings = false },
+        )
     }
     AnimatedVisibility(
         visible = showTransmission,

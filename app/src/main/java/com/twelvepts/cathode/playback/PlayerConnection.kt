@@ -13,6 +13,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.twelvepts.cathode.model.AudioTrack
 import com.twelvepts.cathode.model.AudioQuality
+import com.twelvepts.cathode.data.CathodeDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -276,6 +277,7 @@ class PlayerConnection(context: Context) : Player.Listener {
     override fun onEvents(player: Player, events: Player.Events) = publishState()
     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
         playbackError = error.message ?: "This track could not be played."
+        CathodeDiagnostics.record(appContext, "Playback", playbackError.orEmpty(), error)
         publishState()
     }
     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
