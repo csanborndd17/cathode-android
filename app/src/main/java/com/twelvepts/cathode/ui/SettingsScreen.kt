@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.CathodeDiagnostics
 import com.twelvepts.cathode.data.SpotifyPlaylistResolver
+import com.twelvepts.cathode.data.YouTubePlaylistResolver
 import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val spotify = remember { SpotifyPlaylistResolver(context.applicationContext) }
+    val youtube = remember { YouTubePlaylistResolver(context.applicationContext) }
     var advanced by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticEntries by remember { mutableStateOf(CathodeDiagnostics.entries(context)) }
@@ -46,6 +48,8 @@ fun SettingsScreen(
     var spotifyConnected by remember { mutableStateOf(spotify.isConnected) }
     var spotifyConnecting by remember { mutableStateOf(false) }
     var spotifyMessage by remember { mutableStateOf<String?>(null) }
+    var youtubeApiKey by remember { mutableStateOf(youtube.apiKey) }
+    var youtubeSaved by remember { mutableStateOf(youtube.isConfigured) }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
     var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
     var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
@@ -193,6 +197,38 @@ fun SettingsScreen(
                     }) { Text("Disconnect") }
                 }
                 spotifyMessage?.let { Text(it, color = if (spotifyConnected) CathodeCyan else CathodeMuted) }
+            }
+            item {
+                SettingSection("YouTube playlist import")
+                Text("Public YouTube and YouTube Music playlists use the official YouTube Data API. Private playlists require Google OAuth and are not supported yet.", color = CathodeMuted)
+                OutlinedTextField(
+                    value = youtubeApiKey,
+                    onValueChange = { youtubeApiKey = it.trim(); youtubeSaved = false },
+                    label = { Text("YouTube Data API key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Surface(color = CathodePanel.copy(alpha = .8f), shape = MaterialTheme.shapes.medium) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("One-time setup", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                        Text("1. Create a project in Google Cloud Console.")
+                        Text("2. Enable YouTube Data API v3.")
+                        Text("3. Create an API key and restrict it to YouTube Data API v3.")
+                        Text("4. Paste that API key above. No Google password enters Cathode.")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(enabled = youtubeApiKey.isNotBlank(), onClick = {
+                        youtube.apiKey = youtubeApiKey
+                        youtubeSaved = true
+                    }) { Text("Save API key") }
+                    if (youtube.isConfigured || youtubeSaved) TextButton(onClick = {
+                        youtube.clear()
+                        youtubeApiKey = ""
+                        youtubeSaved = false
+                    }) { Text("Remove") }
+                }
+                if (youtubeSaved) Text("YouTube API configured.", color = CathodeCyan)
             }
             item {
                 SettingSection("Audio integrity")

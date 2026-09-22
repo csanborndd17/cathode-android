@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.twelvepts.cathode.BuildConfig
 import com.twelvepts.cathode.data.SpotifyPlaylistResolver
+import com.twelvepts.cathode.data.YouTubePlaylistResolver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -117,6 +118,7 @@ fun AcquireScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val spotify = remember { SpotifyPlaylistResolver(context.applicationContext) }
+    val youtube = remember { YouTubePlaylistResolver(context.applicationContext) }
     val connectivity = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
     var online by remember { mutableStateOf(connectivity.isOnline()) }
     var selectedSource by remember { mutableStateOf<DiscoverSource?>(null) }
@@ -369,11 +371,27 @@ fun AcquireScreen() {
                                 resolvingPlaylist = false
                             }
                         }
+                    } else if (link != null && ("youtube.com/" in link || "youtu.be/" in link)) {
+                        importedTracks = emptyList()
+                        if (!youtube.isConfigured) {
+                            playlistLinkNotice = "Add a YouTube Data API key in Settings → Advanced → YouTube playlist import, then try again."
+                        } else {
+                            resolvingPlaylist = true
+                            playlistLinkNotice = "Reading playlist from YouTube…"
+                            scope.launch {
+                                youtube.resolve(link).fold(
+                                    onSuccess = { tracks ->
+                                        importedTracks = tracks.map { ImportedTrack(it.artist, it.title) }
+                                        playlistLinkNotice = if (tracks.isEmpty()) "YouTube returned no readable public tracks." else "Loaded ${tracks.size} tracks from YouTube."
+                                    },
+                                    onFailure = { playlistLinkNotice = it.message ?: "YouTube playlist lookup failed." },
+                                )
+                                resolvingPlaylist = false
+                            }
+                        }
                     } else if (link != null) {
                         importedTracks = emptyList()
-                        playlistLinkNotice = if ("youtube.com/" in link || "youtu.be/" in link) {
-                            "YouTube playlist lookup requires an authorized YouTube Data API connection."
-                        } else "This playlist provider is not connected. Export it as Artist - Title lines for now."
+                        playlistLinkNotice = "This playlist provider is not connected. Export it as Artist - Title lines for now."
                     } else {
                         playlistLinkNotice = null
                         importedTracks = parsePlaylistText(importText)

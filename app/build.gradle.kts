@@ -12,8 +12,8 @@ android {
         applicationId = "com.twelvepts.cathode"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "0.9.0"
+        versionCode = 25
+        versionName = "0.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -30,6 +30,27 @@ android {
     }
 
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+
+    val releaseStorePath = System.getenv("CATHODE_KEYSTORE_FILE")
+    val releaseStorePassword = System.getenv("CATHODE_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("CATHODE_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("CATHODE_KEY_PASSWORD")
+    signingConfigs {
+        create("release") {
+            if (!releaseStorePath.isNullOrBlank()) storeFile = file(releaseStorePath)
+            storePassword = releaseStorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            if (listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isMinifyEnabled = false
+        }
+    }
 }
 
 kotlin {

@@ -14,7 +14,7 @@ Cathode is a local-first Android music player by 12Pts with an artwork-reactive 
 - Audio equalizer where the active Android route exposes an effects session
 - Persistent mini-player, artwork-derived backgrounds, profile customization, and Transmission Log
 - HTTPS-only Discover hub with Android DownloadManager handoff and offline detection
-- Authorized Spotify playlist import with lazy large-playlist rendering and guided source-search queues
+- Authorized Spotify and public YouTube playlist import with lazy large-playlist rendering and guided source-search queues
 - Android 8.0+ (`minSdk 26`), targeting API 36
 
 > Download only media you own or are legally authorized to use. Cathode contains no scraper, service API, DRM circumvention, or copyright-bypass system.
@@ -47,4 +47,4 @@ Every user-facing update should record what changed, why, how Android implements
 
 ## Library migration
 
-Cathode accepts authorized Spotify playlist links, collects track and artist names through Spotify OAuth, and prepares a guided search queue on the selected Discover source. YouTube authorization remains planned. Cathode does not scrape private playlists, bypass service authentication, or automatically download copyrighted catalogs.
+Cathode accepts authorized Spotify and public YouTube playlist links, collects track and artist names through official provider APIs, and prepares a guided search queue on the selected Discover source. Private YouTube playlists require a future Google OAuth connection. Cathode does not scrape private playlists, bypass service authentication, or automatically download copyrighted catalogs.

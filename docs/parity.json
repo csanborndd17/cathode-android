@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Cathode",
   "studio": "12Pts",
-  "androidVersion": "0.9.0",
+  "androidVersion": "0.9.1",
   "desktopVersion": null,
   "desktopRepository": "csanborndd17/cathode-desktop",
   "features": [
@@ -23,7 +23,7 @@
     {"id":"profile.customization","android":"implemented","desktop":"planned","desktopEquivalent":"Local profile and appearance settings"},
     {"id":"history.transmission-log","android":"implemented","desktop":"planned","desktopEquivalent":"Compatible annual listening-stat schema"},
     {"id":"discover.source-hub","android":"implemented","desktop":"planned","desktopEquivalent":"Secure browser or system-browser source launcher"},
-    {"id":"import.playlist-link","android":"partial","desktop":"planned","notes":"Spotify OAuth import and guided source-search queues are implemented; YouTube authorization remains planned","desktopEquivalent":"Paste Spotify, YouTube, or supported playlist links; resolve track titles through authorized metadata access; queue searches against a user-selected source"},
+    {"id":"import.playlist-link","android":"partial","desktop":"planned","notes":"Spotify OAuth, public YouTube API-key import, and guided source-search queues are implemented; private YouTube OAuth remains planned","desktopEquivalent":"Paste Spotify, YouTube, or supported playlist links; resolve track titles through authorized metadata access; queue searches against a user-selected source"},
     {"id":"audio.equalizer","android":"partial","desktop":"planned","notes":"Android support depends on the active audio route"},
     {"id":"audio.replaygain","android":"implemented","desktop":"planned"},
     {"id":"playback.transitions","android":"partial","desktop":"planned","notes":"Gapless is enabled where decoder/container metadata supports it; overlapping crossfade still requires a dual-player pipeline"},
