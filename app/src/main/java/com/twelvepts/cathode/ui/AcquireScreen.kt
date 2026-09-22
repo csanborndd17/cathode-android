@@ -3,8 +3,6 @@ package com.twelvepts.cathode.ui
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -28,8 +26,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowBack
@@ -53,6 +50,8 @@ import com.twelvepts.cathode.BuildConfig
 import com.twelvepts.cathode.data.SpotifyPlaylistResolver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 private data class DownloadSignal(
     val id: Long,
@@ -133,6 +132,26 @@ fun AcquireScreen() {
     var resolvingPlaylist by remember { mutableStateOf(false) }
     var importSource by remember { mutableStateOf(discoverSources.first()) }
     var completedImports by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var skippedImports by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var searchQueue by remember { mutableStateOf<List<ImportedTrack>>(emptyList()) }
+    var searchIndex by remember { mutableIntStateOf(0) }
+    var showSearchQueue by remember { mutableStateOf(false) }
+    val currentSearch = searchQueue.getOrNull(searchIndex)
+    fun loadQueuedSearch(index: Int, markCurrentSearched: Boolean = false, skipCurrent: Boolean = false) {
+        if (markCurrentSearched) currentSearch?.query?.let { completedImports = completedImports + it }
+        if (skipCurrent) currentSearch?.query?.let { skippedImports = skippedImports + it }
+        if (searchQueue.isEmpty()) return
+        searchIndex = index.coerceIn(0, searchQueue.lastIndex)
+        val track = searchQueue[searchIndex]
+        webView?.loadUrl(importSource.searchUrl(track.query))
+    }
+    fun startSearchSession(tracks: List<ImportedTrack>, startIndex: Int = 0) {
+        if (tracks.isEmpty()) return
+        searchQueue = tracks
+        searchIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        showPlaylistImport = false
+        selectedSource = importSource
+    }
     fun closeSource() {
         webView?.apply {
             stopLoading()
@@ -214,6 +233,21 @@ fun AcquireScreen() {
                     }
                     TextButton(onClick = { webView?.loadUrl(source.url) }, enabled = online) { Text("Home") }
                 }
+                if (currentSearch != null && source == importSource) {
+                    Surface(color = CathodePanel.copy(alpha = .96f)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Text("SEARCH QUEUE ${searchIndex + 1}/${searchQueue.size}", color = CathodeCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text(currentSearch.query, maxLines = 1)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { loadQueuedSearch(searchIndex - 1) }, enabled = searchIndex > 0) { Text("Previous") }
+                                TextButton(onClick = { showSearchQueue = true }) { Text("Queue") }
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = { loadQueuedSearch(searchIndex + 1, skipCurrent = true) }) { Text("Skip") }
+                                Button(onClick = { loadQueuedSearch(searchIndex + 1, markCurrentSearched = true) }) { Text(if (searchIndex == searchQueue.lastIndex) "Finish" else "Next") }
+                            }
+                        }
+                    }
+                }
                 if (!online) {
                     OfflinePanel {
                         online = connectivity.isOnline()
@@ -267,7 +301,7 @@ fun AcquireScreen() {
                                         override fun onProgressChanged(view: WebView?, progress: Int) { loadingProgress = progress }
                                     }
                                     setDownloadListener(CathodeDownloadListener(webContext, source.downloadFolder))
-                                    loadUrl(source.url)
+                                    loadUrl(if (currentSearch != null && source == importSource) source.searchUrl(currentSearch.query) else source.url)
                                 }
                             },
                             update = { if (retryKey > 0 && it.url.isNullOrBlank()) it.loadUrl(source.url) },
@@ -306,7 +340,7 @@ fun AcquireScreen() {
         onDismissRequest = { showPlaylistImport = false },
         title = { Text("Playlist converter") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Paste a track list, or an authorized playlist link once its provider is connected. Cathode reads names only; it never downloads from Spotify or YouTube.", color = CathodeMuted)
                 OutlinedTextField(
                     value = importText,
@@ -357,17 +391,20 @@ fun AcquireScreen() {
                     TextButton(onClick = {
                         context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE).edit()
                             .putString("draft_text", importText)
+                            .putString("draft_tracks", encodeImportedTracks(importedTracks))
                             .putString("draft_source", importSource.id)
                             .putStringSet("draft_completed", completedImports)
+                            .putStringSet("draft_skipped", skippedImports)
                             .apply()
                         Toast.makeText(context, "Conversion session saved", Toast.LENGTH_SHORT).show()
                     }) { Text("Save session") }
                     TextButton(onClick = {
                         val preferences = context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE)
                         importText = preferences.getString("draft_text", "").orEmpty()
-                        importedTracks = parsePlaylistText(importText)
+                        importedTracks = decodeImportedTracks(preferences.getString("draft_tracks", null)).ifEmpty { parsePlaylistText(importText) }
                         importSource = discoverSources.firstOrNull { it.id == preferences.getString("draft_source", "") } ?: discoverSources.first()
                         completedImports = preferences.getStringSet("draft_completed", emptySet()).orEmpty()
+                        skippedImports = preferences.getStringSet("draft_skipped", emptySet()).orEmpty()
                     }) { Text("Resume saved session") }
                 }
                 Text("Search source", color = CathodeCyan, fontWeight = FontWeight.Bold)
@@ -377,26 +414,27 @@ fun AcquireScreen() {
                         FilterChip(selected = source == importSource, onClick = { importSource = source }, label = { Text(source.name) })
                     }
                 }
-                importedTracks.forEachIndexed { index, track ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (importedTracks.isNotEmpty()) Button(
+                    onClick = { startSearchSession(importedTracks, importedTracks.indexOfFirst { it.query !in completedImports }.coerceAtLeast(0)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Search all (${importedTracks.size})") }
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 300.dp)) {
+                    itemsIndexed(importedTracks, key = { _, track -> track.query }) { index, track ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "${index + 1}. ${track.query}",
                             Modifier.weight(1f),
                             maxLines = 2,
-                            color = if (track.query in completedImports) CathodeMuted else CathodeText,
+                            color = if (track.query in completedImports || track.query in skippedImports) CathodeMuted else CathodeText,
                         )
                         TextButton(onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Cathode track search", track.query))
-                            completedImports = completedImports + track.query
-                            showPlaylistImport = false
-                            selectedSource = importSource
-                            Toast.makeText(context, "Search copied. Paste it into ${importSource.name}.", Toast.LENGTH_LONG).show()
+                            startSearchSession(importedTracks, index)
                         }) { Text("Search") }
                         IconButton(onClick = {
                             importedTracks = importedTracks.filterNot { it == track }
                             completedImports = completedImports - track.query
                         }) { Icon(Icons.Default.Close, "Remove imported track", tint = CathodeMuted) }
+                    }
                     }
                 }
             }
@@ -405,11 +443,56 @@ fun AcquireScreen() {
         dismissButton = { TextButton(onClick = { showPlaylistImport = false }) { Text("Close") } },
     )
 
+    if (showSearchQueue) AlertDialog(
+        onDismissRequest = { showSearchQueue = false },
+        title = { Text("Search queue") },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+                itemsIndexed(searchQueue, key = { _, track -> track.query }) { index, track ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            loadQueuedSearch(index)
+                            showSearchQueue = false
+                        }.padding(vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${index + 1}", color = if (index == searchIndex) CathodeCyan else CathodeMuted, modifier = Modifier.width(42.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(track.title.ifBlank { track.query }, maxLines = 1)
+                            if (track.artist.isNotBlank()) Text(track.artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        }
+                        Text(
+                            when (track.query) {
+                                in completedImports -> "DONE"
+                                in skippedImports -> "SKIPPED"
+                                else -> ""
+                            },
+                            color = CathodeMuted,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showSearchQueue = false }) { Text("Done") } },
+    )
+
     DisposableEffect(Unit) {
         onDispose {
             webView?.apply { stopLoading(); loadUrl("about:blank"); clearHistory(); removeAllViews(); destroy() }
             webView = null
         }
+    }
+}
+
+private fun DiscoverSource.searchUrl(query: String): String {
+    val encoded = Uri.encode(query)
+    return when (id) {
+        "monochrome", "monochrome-mirror" -> url.trimEnd('/') + "/search/$encoded"
+        "archive" -> "https://archive.org/advancedsearch.php?q=$encoded"
+        "bandcamp" -> "https://bandcamp.com/search?q=$encoded"
+        "commons" -> "https://commons.wikimedia.org/wiki/Special:MediaSearch?type=audio&search=$encoded"
+        else -> url
     }
 }
 
@@ -541,6 +624,21 @@ private fun parsePlaylistText(input: String): List<ImportedTrack> = input.lineSe
     .filter { it.query.isNotBlank() }
     .distinctBy { it.query.lowercase() }
     .toList()
+
+private fun encodeImportedTracks(tracks: List<ImportedTrack>): String = JSONArray().apply {
+    tracks.forEach { track -> put(JSONObject().put("artist", track.artist).put("title", track.title)) }
+}.toString()
+
+private fun decodeImportedTracks(value: String?): List<ImportedTrack> = runCatching {
+    val array = JSONArray(value ?: return emptyList())
+    buildList(array.length()) {
+        for (index in 0 until array.length()) {
+            val row = array.optJSONObject(index) ?: continue
+            val track = ImportedTrack(row.optString("artist"), row.optString("title"))
+            if (track.query.isNotBlank()) add(track)
+        }
+    }
+}.getOrDefault(emptyList())
 
 @Composable
 private fun SourceCard(source: DiscoverSource, index: Int, online: Boolean, onOpen: (DiscoverSource) -> Unit) {

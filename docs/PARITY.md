@@ -32,11 +32,11 @@ This split prevents Android Gradle, signing, permissions, and MediaStore behavio
 | Profile and customization | `profile.customization` | Implemented | Planned |
 | Transmission Log | `history.transmission-log` | Implemented | Planned |
 | Discover hub | `discover.source-hub` | Implemented | Planned |
-| Playlist-link library conversion | `import.playlist-link` | Planned | Planned |
+| Playlist-link library conversion | `import.playlist-link` | Partial | Planned |
 | Equalizer | `audio.equalizer` | Partial | Planned |
-| ReplayGain | `audio.replaygain` | Planned | Planned |
+| ReplayGain | `audio.replaygain` | Implemented | Planned |
 | Gapless and crossfade | `playback.transitions` | Partial | Planned |
-| Synchronized lyrics | `library.lyrics` | Planned | Planned |
+| Synchronized lyrics | `library.lyrics` | Implemented | Planned |
 
 ## Change rule
 
