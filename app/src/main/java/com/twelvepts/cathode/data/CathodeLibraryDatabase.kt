@@ -9,7 +9,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int)
+data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int, val artworkUri: String? = null)
 data class ImportSessionTrack(val artist: String, val title: String, val status: String = "PENDING")
 data class ImportSession(val inputText: String, val sourceId: String, val tracks: List<ImportSessionTrack>)
 data class ListeningStat(val trackKey: String, val playCount: Int, val listenedMs: Long)
@@ -24,11 +24,11 @@ data class TransmissionYear(
 }
 
 class CathodeLibraryDatabase(context: Context) :
-    SQLiteOpenHelper(context, "cathode_library.db", null, 3) {
+    SQLiteOpenHelper(context, "cathode_library.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE favorites (track_key TEXT PRIMARY KEY, added_at INTEGER NOT NULL)")
-        db.execSQL("CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, artwork_uri TEXT, created_at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL, track_key TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (playlist_id, track_key), FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE)")
         db.execSQL("CREATE TABLE history (track_key TEXT PRIMARY KEY, play_count INTEGER NOT NULL, last_played INTEGER NOT NULL)")
         createTransmissionTables(db)
@@ -43,6 +43,7 @@ class CathodeLibraryDatabase(context: Context) :
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createTransmissionTables(db)
         if (oldVersion < 3) createImportTables(db)
+        if (oldVersion < 4) db.execSQL("ALTER TABLE playlists ADD COLUMN artwork_uri TEXT")
     }
 
     private fun createTransmissionTables(db: SQLiteDatabase) {
@@ -112,9 +113,18 @@ class CathodeLibraryDatabase(context: Context) :
 
     fun deletePlaylist(id: Long) { writableDatabase.delete("playlists", "id=?", arrayOf(id.toString())) }
 
+    fun updatePlaylist(id: Long, name: String, artworkUri: String?) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        writableDatabase.update("playlists", ContentValues().apply {
+            put("name", clean)
+            if (artworkUri.isNullOrBlank()) putNull("artwork_uri") else put("artwork_uri", artworkUri)
+        }, "id=?", arrayOf(id.toString()))
+    }
+
     fun playlists(): List<PlaylistSummary> = readableDatabase.rawQuery(
-        "SELECT p.id, p.name, COUNT(t.track_key) FROM playlists p LEFT JOIN playlist_tracks t ON p.id=t.playlist_id GROUP BY p.id ORDER BY p.created_at DESC", null,
-    ).use { cursor -> buildList { while (cursor.moveToNext()) add(PlaylistSummary(cursor.getLong(0), cursor.getString(1), cursor.getInt(2))) } }
+        "SELECT p.id, p.name, COUNT(t.track_key), p.artwork_uri FROM playlists p LEFT JOIN playlist_tracks t ON p.id=t.playlist_id GROUP BY p.id ORDER BY p.created_at DESC", null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(PlaylistSummary(cursor.getLong(0), cursor.getString(1), cursor.getInt(2), cursor.getString(3))) } }
 
     fun addToPlaylist(playlistId: Long, trackKey: String) {
         val next = readableDatabase.rawQuery("SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id=?", arrayOf(playlistId.toString()))
@@ -126,6 +136,32 @@ class CathodeLibraryDatabase(context: Context) :
 
     fun removeFromPlaylist(playlistId: Long, trackKey: String) {
         writableDatabase.delete("playlist_tracks", "playlist_id=? AND track_key=?", arrayOf(playlistId.toString(), trackKey))
+        normalizePlaylistPositions(playlistId)
+    }
+
+    fun movePlaylistTrack(playlistId: Long, trackKey: String, direction: Int) {
+        val keys = playlistTrackKeys(playlistId).toMutableList()
+        val from = keys.indexOf(trackKey)
+        if (from < 0 || keys.isEmpty()) return
+        val to = (from + direction).coerceIn(0, keys.lastIndex)
+        if (from == to) return
+        val moved = keys.removeAt(from)
+        keys.add(to, moved)
+        writePlaylistOrder(playlistId, keys)
+    }
+
+    private fun normalizePlaylistPositions(playlistId: Long) = writePlaylistOrder(playlistId, playlistTrackKeys(playlistId))
+
+    private fun writePlaylistOrder(playlistId: Long, keys: List<String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            keys.forEachIndexed { position, key ->
+                db.update("playlist_tracks", ContentValues().apply { put("position", position) },
+                    "playlist_id=? AND track_key=?", arrayOf(playlistId.toString(), key))
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
     }
 
     fun playlistTrackKeys(playlistId: Long): List<String> = readableDatabase.rawQuery(

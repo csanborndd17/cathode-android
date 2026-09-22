@@ -39,6 +39,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Edit
@@ -298,9 +300,11 @@ fun LibraryScreen(
     onCreatePlaylist: (String) -> Unit,
     onCreatePlaylistWithTracks: (String, List<AudioTrack>) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
+    onUpdatePlaylist: (Long, String, String?) -> Unit,
     onAddToPlaylist: PlaylistAdder,
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
+    onMovePlaylistTrack: (Long, AudioTrack, Int) -> Unit,
     onProfile: () -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
@@ -317,6 +321,9 @@ fun LibraryScreen(
     var creatingBulkPlaylist by remember { mutableStateOf(false) }
     var bulkPlaylistName by remember { mutableStateOf("") }
     var confirmingDelete by remember { mutableStateOf(false) }
+    var editingPlaylist by remember { mutableStateOf(false) }
+    var editedPlaylistName by remember { mutableStateOf("") }
+    var editedPlaylistArtwork by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -345,12 +352,19 @@ fun LibraryScreen(
             LibraryCategory.PLAYLISTS -> state.playlists.map { playlist ->
                 val keys = state.playlistTrackKeys[playlist.id].orEmpty()
                 val tracks = keys.mapNotNull { key -> sorted.firstOrNull { it.stableKey == key } }
-                LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks)
+                LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks, playlist.artworkUri)
             }
         }.sortedBy { it.title.lowercase() }
     }
     val detail = groups.firstOrNull { it.key == selectedGroup }
     val detailPlaylistId = detail?.key?.removePrefix("playlist:")?.toLongOrNull()
+    val detailPlaylist = state.playlists.firstOrNull { it.id == detailPlaylistId }
+    val playlistArtworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            editedPlaylistArtwork = uri.toString()
+        }
+    }
     BackHandler(enabled = selectedKeys.isNotEmpty()) { selectedKeys = emptySet() }
     BackHandler(enabled = selectedKeys.isEmpty() && detail != null) { selectedGroup = null }
 
@@ -377,6 +391,11 @@ fun LibraryScreen(
                 IconButton(onClick = { creatingPlaylist = true }) { Icon(Icons.Default.Add, "Create playlist", tint = CathodeCyan) }
             }
             if (detailPlaylistId != null) {
+                IconButton(onClick = {
+                    editedPlaylistName = detailPlaylist?.name.orEmpty()
+                    editedPlaylistArtwork = detailPlaylist?.artworkUri
+                    editingPlaylist = true
+                }) { Icon(Icons.Default.Edit, "Edit playlist", tint = CathodeCyan) }
                 IconButton(onClick = { onDeletePlaylist(detailPlaylistId); selectedGroup = null }) {
                     Icon(Icons.Default.Delete, "Delete playlist", tint = CathodeError)
                 }
@@ -410,6 +429,7 @@ fun LibraryScreen(
             state.tracks.isEmpty() -> EmptyLibrary(true)
             detail != null -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(detail.tracks, key = AudioTrack::stableKey) { track ->
+                    val position = detail.tracks.indexOf(track)
                     TrackRow(
                         track,onPlay,onEdit,onReset,false,null,
                         track.stableKey in state.favoriteKeys,{onToggleFavorite(track)},
@@ -418,6 +438,8 @@ fun LibraryScreen(
                         selected = track.stableKey in selectedKeys,
                         onLongClick = { selectedKeys = selectedKeys + track.stableKey },
                         onSelectionClick = if (selectedKeys.isNotEmpty()) ({ selectedKeys = selectedKeys.toggle(track.stableKey) }) else null,
+                        onMoveUp = if (detailPlaylistId != null && position > 0) ({ onMovePlaylistTrack(detailPlaylistId, track, -1) }) else null,
+                        onMoveDown = if (detailPlaylistId != null && position < detail.tracks.lastIndex) ({ onMovePlaylistTrack(detailPlaylistId, track, 1) }) else null,
                     )
                 }
                 if (detail.tracks.isEmpty()) item { MessagePanel("Empty playlist", "Add songs using the playlist button beside any track.", CathodeMuted) }
@@ -492,6 +514,29 @@ fun LibraryScreen(
         dismissButton = { TextButton(onClick = { creatingPlaylist = false }) { Text("Cancel") } },
     )
 
+    if (editingPlaylist && detailPlaylistId != null) AlertDialog(
+        onDismissRequest = { editingPlaylist = false },
+        title = { Text("Edit playlist") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AsyncImage(
+                model = editedPlaylistArtwork ?: detail?.tracks?.firstOrNull()?.artworkUri,
+                contentDescription = "Playlist artwork",
+                modifier = Modifier.size(128.dp).align(Alignment.CenterHorizontally).background(CathodePanel),
+                contentScale = ContentScale.Crop,
+            )
+            OutlinedTextField(editedPlaylistName, { editedPlaylistName = it }, label = { Text("Playlist name") }, singleLine = true)
+            Row {
+                TextButton(onClick = { playlistArtworkPicker.launch(arrayOf("image/*")) }) { Text("Choose artwork") }
+                if (editedPlaylistArtwork != null) TextButton(onClick = { editedPlaylistArtwork = null }) { Text("Use track artwork") }
+            }
+        } },
+        confirmButton = { TextButton(enabled = editedPlaylistName.isNotBlank(), onClick = {
+            onUpdatePlaylist(detailPlaylistId, editedPlaylistName, editedPlaylistArtwork)
+            editingPlaylist = false
+        }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { editingPlaylist = false }) { Text("Cancel") } },
+    )
+
     if (choosingBulkPlaylist) AlertDialog(
         onDismissRequest = { choosingBulkPlaylist = false },
         title = { Text("Add ${selectedKeys.size} tracks to playlist") },
@@ -548,12 +593,12 @@ fun LibraryScreen(
 
 private fun Set<String>.toggle(key: String): Set<String> = if (key in this) this - key else this + key
 
-private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
+private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>, val artworkUri: String? = null)
 
 @Composable
 private fun LibraryGroupRow(group: LibraryGroup, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        AsyncImage(group.tracks.firstOrNull()?.artworkUri, null, Modifier.size(58.dp).background(CathodePanel), contentScale = ContentScale.Crop)
+        AsyncImage(group.artworkUri ?: group.tracks.firstOrNull()?.artworkUri, null, Modifier.size(58.dp).background(CathodePanel), contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(group.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(group.subtitle, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
@@ -566,7 +611,7 @@ private fun LibraryGroupRow(group: LibraryGroup, onClick: () -> Unit) {
 private fun LibraryGroupCard(group: LibraryGroup, onClick: () -> Unit) {
     Card(onClick = onClick) {
         Column {
-            AsyncImage(group.tracks.firstOrNull()?.artworkUri, null, Modifier.fillMaxWidth().aspectRatio(1f).background(CathodePanel), contentScale = ContentScale.Crop)
+            AsyncImage(group.artworkUri ?: group.tracks.firstOrNull()?.artworkUri, null, Modifier.fillMaxWidth().aspectRatio(1f).background(CathodePanel), contentScale = ContentScale.Crop)
             Text(group.title, Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(group.subtitle, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp), color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
@@ -644,6 +689,8 @@ private fun TrackRow(
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onSelectionClick: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
 ) {
     var editing by remember(track.stableKey) { mutableStateOf(false) }
     var choosingPlaylist by remember(track.stableKey) { mutableStateOf(false) }
@@ -683,6 +730,16 @@ private fun TrackRow(
                     text = { Text("Add to queue") },
                     leadingIcon = { Icon(Icons.Default.QueueMusic, null) },
                     onClick = { addToQueue(track); moreMenu = false },
+                )
+                if (onMoveUp != null) DropdownMenuItem(
+                    text = { Text("Move up") },
+                    leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
+                    onClick = { onMoveUp(); moreMenu = false },
+                )
+                if (onMoveDown != null) DropdownMenuItem(
+                    text = { Text("Move down") },
+                    leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
+                    onClick = { onMoveDown(); moreMenu = false },
                 )
                 DropdownMenuItem(
                     text = { Text("Edit metadata") },

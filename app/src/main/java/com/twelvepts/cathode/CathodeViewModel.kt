@@ -104,6 +104,11 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         refreshCollections()
     }
 
+    fun updatePlaylist(id: Long, name: String, artworkUri: String?) {
+        database.updatePlaylist(id, name, artworkUri)
+        refreshCollections()
+    }
+
     fun addToPlaylist(playlistId: Long, track: AudioTrack) {
         database.addToPlaylist(playlistId, track.stableKey)
         refreshCollections()
@@ -111,6 +116,11 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
 
     fun removeFromPlaylist(playlistId: Long, track: AudioTrack) {
         database.removeFromPlaylist(playlistId, track.stableKey)
+        refreshCollections()
+    }
+
+    fun movePlaylistTrack(playlistId: Long, track: AudioTrack, direction: Int) {
+        database.movePlaylistTrack(playlistId, track.stableKey, direction)
         refreshCollections()
     }
 
