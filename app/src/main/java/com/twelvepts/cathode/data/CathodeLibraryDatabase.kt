@@ -8,6 +8,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int, val artworkUri: String? = null)
 data class SmartPlaylist(val id: Long, val name: String, val rule: String, val value: String)
@@ -62,6 +64,64 @@ class CathodeLibraryDatabase(context: Context) :
 
     private fun createSmartPlaylistTable(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS smart_playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, rule TEXT NOT NULL, rule_value TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)")
+    }
+
+    fun exportData(): JSONObject {
+        val tables = linkedMapOf(
+            "favorites" to arrayOf("track_key", "added_at"),
+            "playlists" to arrayOf("id", "name", "artwork_uri", "created_at"),
+            "playlist_tracks" to arrayOf("playlist_id", "track_key", "position"),
+            "history" to arrayOf("track_key", "play_count", "last_played"),
+            "listening_stats" to arrayOf("track_key", "year", "play_count", "listened_ms", "last_played"),
+            "listening_events" to arrayOf("id", "track_key", "year", "day_key", "hour", "played_at"),
+            "smart_playlists" to arrayOf("id", "name", "rule", "rule_value", "created_at"),
+        )
+        return JSONObject().apply {
+            tables.forEach { (table, columns) ->
+                val rows = JSONArray()
+                readableDatabase.rawQuery("SELECT ${columns.joinToString(",")} FROM $table", null).use { cursor ->
+                    while (cursor.moveToNext()) rows.put(JSONObject().apply {
+                        columns.forEachIndexed { index, column ->
+                            when (cursor.getType(index)) {
+                                android.database.Cursor.FIELD_TYPE_NULL -> put(column, JSONObject.NULL)
+                                android.database.Cursor.FIELD_TYPE_INTEGER -> put(column, cursor.getLong(index))
+                                android.database.Cursor.FIELD_TYPE_FLOAT -> put(column, cursor.getDouble(index))
+                                else -> put(column, cursor.getString(index))
+                            }
+                        }
+                    })
+                }
+                put(table, rows)
+            }
+        }
+    }
+
+    fun restoreData(data: JSONObject) {
+        val order = listOf("playlist_tracks", "favorites", "history", "listening_events", "listening_stats", "smart_playlists", "playlists")
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            order.forEach { db.delete(it, null, null) }
+            order.asReversed().forEach { table ->
+                val rows = data.optJSONArray(table) ?: return@forEach
+                for (index in 0 until rows.length()) {
+                    val row = rows.getJSONObject(index)
+                    val values = ContentValues()
+                    row.keys().forEach { key ->
+                        val value = row.opt(key)
+                        when (value) {
+                            null, JSONObject.NULL -> values.putNull(key)
+                            is Int -> values.put(key, value)
+                            is Long -> values.put(key, value)
+                            is Double -> values.put(key, value)
+                            else -> values.put(key, value.toString())
+                        }
+                    }
+                    db.insertWithOnConflict(table, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
     }
 
     fun smartPlaylists(): List<SmartPlaylist> = readableDatabase.rawQuery(

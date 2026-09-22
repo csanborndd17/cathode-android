@@ -9,6 +9,7 @@ import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.data.SmartPlaylist
 import com.twelvepts.cathode.data.TransmissionYear
 import com.twelvepts.cathode.data.CathodeDiagnostics
+import com.twelvepts.cathode.data.CathodeBackup
 import com.twelvepts.cathode.model.AudioTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -176,6 +177,21 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
+    fun updateMetadataBatch(tracks: List<AudioTrack>, artist: String, album: String, tags: String) {
+        val updates = tracks.associate { track ->
+            track.id to repository.updateMetadata(
+                track = track,
+                title = track.title,
+                artist = artist.ifBlank { track.artist },
+                album = album.ifBlank { track.album },
+                tags = if (tags.isBlank()) track.tags else tags,
+                customArtworkUri = track.customArtworkUri,
+                lyrics = track.lyrics,
+            )
+        }
+        _library.value = _library.value.copy(tracks = _library.value.tracks.map { updates[it.id] ?: it })
+    }
+
     fun analyzeLosslessLibrary() = analyzeLosslessLibrary(force = false)
 
     fun reanalyzeLosslessLibrary() = analyzeLosslessLibrary(force = true)
@@ -203,5 +219,12 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         analysisJob?.cancel()
         analysisJob = null
         _library.value = _library.value.copy(analysisRunning = false)
+    }
+
+    fun exportBackup(): String = CathodeBackup.export(getApplication(), database)
+
+    suspend fun restoreBackup(encoded: String): Result<Unit> = runCatching {
+        CathodeBackup.restore(getApplication(), database, encoded)
+        _library.value = libraryState(repository.loadTracks())
     }
 }

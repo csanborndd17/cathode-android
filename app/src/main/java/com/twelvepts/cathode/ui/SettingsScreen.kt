@@ -1,6 +1,8 @@
 package com.twelvepts.cathode.ui
 
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -35,6 +37,8 @@ fun SettingsScreen(
     onAnalyzeLossless: () -> Unit,
     onReanalyzeLossless: () -> Unit,
     onCancelAnalysis: () -> Unit,
+    onExportBackup: () -> String,
+    onRestoreBackup: suspend (String) -> Result<Unit>,
     onClose: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
@@ -51,6 +55,23 @@ fun SettingsScreen(
     var spotifyMessage by remember { mutableStateOf<String?>(null) }
     var youtubeApiKey by remember { mutableStateOf("") }
     var youtubeSaved by remember { mutableStateOf(youtube.isConfigured) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) backupMessage = runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(onExportBackup()) }
+                ?: error("Could not open the selected file.")
+            "Backup exported."
+        }.getOrElse { "Export failed: ${it.message}" }
+    }
+    val restoreBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val encoded = runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Could not read the selected file.") }
+            encoded.fold(
+                onSuccess = { value -> backupMessage = onRestoreBackup(value).fold({ "Backup restored. Restart Cathode to reload all appearance settings." }, { "Restore failed: ${it.message}" }) },
+                onFailure = { backupMessage = "Restore failed: ${it.message}" },
+            )
+        }
+    }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
     var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
     var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
@@ -97,6 +118,17 @@ fun SettingsScreen(
             item { SettingToggle("Rounded surfaces","Use softer panels and controls.",settings.rounded){v->store.update{it.copy(rounded=v)}} }
             item { SettingToggle("Interface motion","Enable transitions and the phosphor background.",settings.animations){v->store.update{it.copy(animations=v)}} }
             item { SettingToggle("Startup reveal","Show the Cathode logo on launch.",settings.startupAnimation){v->store.update{it.copy(startupAnimation=v)}} }
+            item {
+                SettingSection("Layout resolution")
+                Text("Auto uses Android's detected display density. Manual fits change Cathode's interface scale, not the phone panel's physical resolution.", color = CathodeMuted)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Compact" to .85f, "Auto" to 1f, "Large" to 1.15f).forEach { (label, scale) ->
+                        FilterChip(selected = kotlin.math.abs(settings.layoutScale - scale) < .01f,
+                            onClick = { store.update { it.copy(layoutScale = scale) } }, label = { Text(label) })
+                    }
+                }
+                TextButton(onClick = { store.update { it.copy(layoutScale = 1f) } }) { Text("Reset to detected default") }
+            }
         } else {
             item {
                 SettingSection("Custom accent")
@@ -282,6 +314,12 @@ fun SettingsScreen(
             item {
                 SettingSection("Data")
                 Text("Metadata edits, favorites, playlists, history, and Transmission Log data stay on this device.",color=CathodeMuted)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { exportBackup.launch("Cathode-backup.json") }) { Text("Export backup") }
+                    Button(onClick = { restoreBackup.launch(arrayOf("application/json", "text/plain")) }) { Text("Restore backup") }
+                }
+                Text("Backups include settings, metadata overrides, lyrics, playlists, favorites, queue state, and listening history. Provider login tokens are never exported.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                backupMessage?.let { Text(it, color = if (it.startsWith("Backup")) CathodeCyan else CathodeError) }
             }
         }
         item { Spacer(Modifier.height(28.dp)) }

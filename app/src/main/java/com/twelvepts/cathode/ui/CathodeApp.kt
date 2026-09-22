@@ -215,6 +215,7 @@ fun CathodeApp(
                             onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onMovePlaylistTrack = viewModel::movePlaylistTrack,
+                            onBatchEdit = viewModel::updateMetadataBatch,
                             onCreateSmartPlaylist = viewModel::createSmartPlaylist,
                             onUpdateSmartPlaylist = viewModel::updateSmartPlaylist,
                             onDeleteSmartPlaylist = viewModel::deleteSmartPlaylist,
@@ -256,6 +257,8 @@ fun CathodeApp(
             onAnalyzeLossless = viewModel::analyzeLosslessLibrary,
             onReanalyzeLossless = viewModel::reanalyzeLosslessLibrary,
             onCancelAnalysis = viewModel::cancelLosslessAnalysis,
+            onExportBackup = viewModel::exportBackup,
+            onRestoreBackup = viewModel::restoreBackup,
             onClose = { showSettings = false },
         )
     }

@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "product": "Cathode",
   "studio": "12Pts",
-  "androidVersion": "0.10.1",
+  "androidVersion": "0.11.0",
+  "backupSchemaVersion": 1,
   "desktopVersion": null,
   "desktopRepository": "csanborndd17/cathode-desktop",
   "features": [

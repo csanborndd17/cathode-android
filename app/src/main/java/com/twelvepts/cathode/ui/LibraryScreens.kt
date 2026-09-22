@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.Build
 import android.provider.MediaStore
 import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -76,6 +79,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -98,7 +102,9 @@ import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.data.SmartPlaylist
 import com.twelvepts.cathode.model.AudioTrack
 import java.util.Calendar
+import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 typealias MetadataEditor = (AudioTrack, String, String, String, String, String?, String) -> Unit
@@ -306,6 +312,7 @@ fun LibraryScreen(
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onMovePlaylistTrack: (Long, AudioTrack, Int) -> Unit,
+    onBatchEdit: (List<AudioTrack>, String, String, String) -> Unit,
     onCreateSmartPlaylist: (String, String, String) -> Unit,
     onUpdateSmartPlaylist: (Long, String, String, String) -> Unit,
     onDeleteSmartPlaylist: (Long) -> Unit,
@@ -333,6 +340,10 @@ fun LibraryScreen(
     var smartName by remember { mutableStateOf("") }
     var smartRule by remember { mutableStateOf("FAVORITES") }
     var smartValue by remember { mutableStateOf("") }
+    var batchEditing by remember { mutableStateOf(false) }
+    var batchArtist by remember { mutableStateOf("") }
+    var batchAlbum by remember { mutableStateOf("") }
+    var batchTags by remember { mutableStateOf("") }
     val context = LocalContext.current
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -447,6 +458,7 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("${selectedKeys.size} selected", Modifier.weight(1f), color = CathodeCyan, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { batchEditing = true }) { Icon(Icons.Default.Edit, "Edit selected metadata", tint = CathodeCyan) }
                 IconButton(onClick = { choosingBulkPlaylist = true }) {
                     Icon(Icons.Default.PlaylistAdd, "Add selected tracks to playlist", tint = CathodeCyan)
                 }
@@ -555,6 +567,22 @@ fun LibraryScreen(
             playlistName = ""; creatingPlaylist = false
         }) { Text("Create") } },
         dismissButton = { TextButton(onClick = { creatingPlaylist = false }) { Text("Cancel") } },
+    )
+
+    if (batchEditing) AlertDialog(
+        onDismissRequest = { batchEditing = false },
+        title = { Text("Edit ${selectedTracks.size} tracks") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Leave a field blank to keep each track's current value.", color = CathodeMuted)
+            OutlinedTextField(batchArtist, { batchArtist = it }, label = { Text("Artist") }, singleLine = true)
+            OutlinedTextField(batchAlbum, { batchAlbum = it }, label = { Text("Album") }, singleLine = true)
+            OutlinedTextField(batchTags, { batchTags = it }, label = { Text("Search tags") })
+        } },
+        confirmButton = { TextButton(onClick = {
+            onBatchEdit(selectedTracks, batchArtist, batchAlbum, batchTags)
+            batchArtist = ""; batchAlbum = ""; batchTags = ""; selectedKeys = emptySet(); batchEditing = false
+        }) { Text("Apply") } },
+        dismissButton = { TextButton(onClick = { batchEditing = false }) { Text("Cancel") } },
     )
 
     if (editingPlaylist && detailPlaylistId != null) AlertDialog(
@@ -978,12 +1006,25 @@ private fun MetadataDialog(
     var tags by remember(track.id) { mutableStateOf(track.tags) }
     var artworkUri by remember(track.id) { mutableStateOf(track.customArtworkUri) }
     var lyrics by remember(track.id) { mutableStateOf(track.lyrics) }
+    var cropSource by remember { mutableStateOf<Uri?>(null) }
+    var cropZoom by remember { mutableStateOf(1f) }
+    var cropX by remember { mutableStateOf(0f) }
+    var cropY by remember { mutableStateOf(0f) }
+    val scope = rememberCoroutineScope()
     val artworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            artworkUri = uri.toString()
+            cropSource = uri
+            cropZoom = 1f; cropX = 0f; cropY = 0f
+        }
+    }
+    val lyricsPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            lyrics = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull().orEmpty().ifBlank { lyrics }
         }
     }
 
@@ -1023,6 +1064,9 @@ private fun MetadataDialog(
                     supportingText = { Text("Plain text or timestamped LRC lines are stored locally in Cathode.") },
                     minLines = 5,
                 )
+                TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) {
+                    Text("Import .lrc file")
+                }
                 Text(
                     buildString {
                         append(track.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO")
@@ -1050,6 +1094,51 @@ private fun MetadataDialog(
             }
         },
     )
+    cropSource?.let { source ->
+        AlertDialog(
+            onDismissRequest = { cropSource = null },
+            title = { Text("Crop cover artwork") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(240.dp).align(Alignment.CenterHorizontally).clip(MaterialTheme.shapes.medium).background(CathodePanel)) {
+                    AsyncImage(
+                        model = source, contentDescription = "Crop preview", contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = cropZoom; scaleY = cropZoom
+                            translationX = cropX * 90f; translationY = cropY * 90f
+                        },
+                    )
+                }
+                Text("Zoom", color = CathodeMuted); androidx.compose.material3.Slider(cropZoom, { cropZoom = it }, valueRange = 1f..3f)
+                Text("Horizontal position", color = CathodeMuted); androidx.compose.material3.Slider(cropX, { cropX = it }, valueRange = -1f..1f)
+                Text("Vertical position", color = CathodeMuted); androidx.compose.material3.Slider(cropY, { cropY = it }, valueRange = -1f..1f)
+            } },
+            confirmButton = { TextButton(onClick = {
+                scope.launch {
+                    cropArtwork(context, source, track.stableKey, cropZoom, cropX, cropY)?.let { artworkUri = it }
+                    cropSource = null
+                }
+            }) { Text("Use crop") } },
+            dismissButton = { TextButton(onClick = { cropSource = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private suspend fun cropArtwork(context: android.content.Context, source: Uri, key: String, zoom: Float, x: Float, y: Float): String? = withContext(Dispatchers.IO) {
+    runCatching {
+        val bitmap = context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it) } ?: return@runCatching null
+        val cropSize = (minOf(bitmap.width, bitmap.height) / zoom.coerceIn(1f, 3f)).toInt().coerceAtLeast(1)
+        val left = (((bitmap.width - cropSize) * (x.coerceIn(-1f, 1f) + 1f)) / 2f).toInt().coerceIn(0, bitmap.width - cropSize)
+        val top = (((bitmap.height - cropSize) * (y.coerceIn(-1f, 1f) + 1f)) / 2f).toInt().coerceIn(0, bitmap.height - cropSize)
+        val cropped = Bitmap.createBitmap(bitmap, left, top, cropSize, cropSize)
+        val output = if (cropSize > 1200) Bitmap.createScaledBitmap(cropped, 1200, 1200, true) else cropped
+        val directory = File(context.filesDir, "covers").apply { mkdirs() }
+        val file = File(directory, "$key.jpg")
+        file.outputStream().use { output.compress(Bitmap.CompressFormat.JPEG, 94, it) }
+        if (output !== cropped) output.recycle()
+        if (cropped !== bitmap) cropped.recycle()
+        bitmap.recycle()
+        Uri.fromFile(file).toString()
+    }.getOrNull()
 }
 
 @Composable
