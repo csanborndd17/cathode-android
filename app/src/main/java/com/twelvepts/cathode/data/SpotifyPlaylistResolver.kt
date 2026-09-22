@@ -20,6 +20,10 @@ import java.util.Base64
 data class SpotifyTrack(val artist: String, val title: String)
 
 class SpotifyPlaylistResolver(private val context: Context) {
+    companion object {
+        const val REDIRECT_URI = "http://127.0.0.1:43821/callback"
+        private const val CALLBACK_PORT = 43821
+    }
     private val preferences = context.getSharedPreferences("spotify_connection", Context.MODE_PRIVATE)
 
     var clientId: String
@@ -35,9 +39,9 @@ class SpotifyPlaylistResolver(private val context: Context) {
     suspend fun connect(): Result<Unit> = runCatching {
         require(clientId.isNotBlank()) { "Enter your Spotify Client ID first." }
         val server = withContext(Dispatchers.IO) {
-            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).apply { soTimeout = 180_000 }
+            ServerSocket(CALLBACK_PORT, 1, InetAddress.getByName("127.0.0.1")).apply { soTimeout = 180_000 }
         }
-        val redirectUri = "http://127.0.0.1:${server.localPort}/callback"
+        val redirectUri = REDIRECT_URI
         val verifier = randomUrlSafe(64)
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
             MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()),

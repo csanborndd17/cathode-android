@@ -158,7 +158,7 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Register http://127.0.0.1/callback as the redirect URI in your Spotify developer app. Cathode supplies the temporary port automatically.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                Text("Register http://127.0.0.1:43821/callback as the redirect URI in your Spotify developer app.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         enabled = spotifyClientId.isNotBlank() && !spotifyConnecting,
