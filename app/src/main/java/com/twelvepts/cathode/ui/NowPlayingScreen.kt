@@ -7,14 +7,24 @@ import android.media.MediaMetadataRetriever
 import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -52,6 +63,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -67,6 +79,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -79,8 +92,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -310,7 +328,12 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
             }
         }
     }
-    if (showLyrics) LyricsScreen(state, player) { showLyrics = false }
+    AnimatedVisibility(
+        visible = showLyrics,
+        enter = fadeIn(tween(if (animations) 260 else 0)) + slideInVertically(tween(if (animations) 320 else 0)) { it / 10 },
+        exit = fadeOut(tween(if (animations) 220 else 0)) + slideOutVertically(tween(if (animations) 260 else 0)) { it / 12 },
+        label = "lyrics-overlay",
+    ) { LyricsScreen(state, player) { showLyrics = false } }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
     if (showSleepTimer) AlertDialog(
@@ -394,8 +417,25 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
     val lines = remember(state.lyrics) { parseLyrics(state.lyrics) }
     val activeIndex = lines.indexOfLast { it.timeMs != null && it.timeMs <= state.positionMs }
     val listState = rememberLazyListState()
-    LaunchedEffect(activeIndex) {
-        if (activeIndex >= 0) listState.animateScrollToItem((activeIndex - 2).coerceAtLeast(0))
+    val trackKey = state.queue.getOrNull(state.mediaItemIndex)?.mediaId
+    var following by remember(trackKey) { mutableStateOf(true) }
+    val manualScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y != 0f) following = false
+                return Offset.Zero
+            }
+        }
+    }
+    suspend fun centerActiveLine() {
+        if (activeIndex < 0) return
+        listState.scrollToItem(activeIndex)
+        val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex } ?: return
+        val viewportCenter = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
+        listState.animateScrollBy((info.offset + info.size / 2 - viewportCenter).toFloat())
+    }
+    LaunchedEffect(activeIndex, following) {
+        if (following) centerActiveLine()
     }
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Box(Modifier.fillMaxSize()) {
@@ -419,15 +459,41 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No local lyrics yet. Edit this track's metadata from Library to add plain text or LRC lyrics.", color = CathodeMuted, textAlign = TextAlign.Center)
                 }
-            } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                itemsIndexed(lines) { index, line ->
-                    Text(
-                        line.text,
-                        color = if (index == activeIndex) CathodeCyan else CathodeText.copy(alpha = if (line.timeMs == null) .92f else .58f),
-                        style = if (index == activeIndex) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
-                        fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.fillMaxWidth().clickable(enabled = line.timeMs != null) { line.timeMs?.let(player::seekTo) },
-                    )
+            } else BoxWithConstraints(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().nestedScroll(manualScrollConnection),
+                    contentPadding = PaddingValues(vertical = maxHeight * .40f),
+                    verticalArrangement = Arrangement.spacedBy(28.dp),
+                ) {
+                    itemsIndexed(lines) { index, line ->
+                        val active = index == activeIndex
+                        val scale by animateFloatAsState(if (active) 1f else .88f, spring(dampingRatio = .82f), label = "lyric-scale")
+                        val lineColor by animateColorAsState(
+                            if (active) CathodeCyan else CathodeText.copy(alpha = if (line.timeMs == null) .82f else .48f),
+                            tween(280),
+                            label = "lyric-color",
+                        )
+                        Text(
+                            line.text,
+                            color = lineColor,
+                            style = if (active) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clickable(enabled = line.timeMs != null) { line.timeMs?.let(player::seekTo) },
+                        )
+                    }
+                }
+                if (!following && activeIndex >= 0) {
+                    SmallFloatingActionButton(
+                        onClick = { following = true },
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp),
+                        containerColor = CathodeCyan,
+                        contentColor = CathodeBlack,
+                    ) {
+                        Icon(Icons.Default.CenterFocusStrong, "Recenter on current lyric")
+                    }
                 }
             }
         }

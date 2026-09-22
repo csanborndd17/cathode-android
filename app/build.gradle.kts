@@ -12,8 +12,8 @@ android {
         applicationId = "com.twelvepts.cathode"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "0.11.1"
+        versionCode = 31
+        versionName = "0.11.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
