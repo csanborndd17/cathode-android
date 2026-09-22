@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Cathode",
   "studio": "12Pts",
-  "androidVersion": "0.10.0",
+  "androidVersion": "0.10.1",
   "desktopVersion": null,
   "desktopRepository": "csanborndd17/cathode-desktop",
   "features": [
@@ -17,7 +17,8 @@
     {"id":"playback.error-recovery","android":"implemented","desktop":"planned","desktopEquivalent":"Surface decoder errors and continue past unavailable queue items"},
     {"id":"library.browse","android":"implemented","desktop":"planned","desktopEquivalent":"Songs, albums, artists, folders, and playlists"},
     {"id":"library.search","android":"implemented","desktop":"planned","desktopEquivalent":"Search metadata, folder, and custom tags"},
-    {"id":"library.collections","android":"partial","desktop":"planned","notes":"Favorites and editable manual playlists support rename, artwork, and ordering; smart playlists remain planned","desktopEquivalent":"Local favorites, editable playlists, and rule-based smart playlists"},
+    {"id":"library.collections","android":"implemented","desktop":"planned","notes":"Favorites, editable manual playlists, and editable rule-based smart playlists","desktopEquivalent":"Local favorites, editable playlists, and rule-based smart playlists"},
+    {"id":"library.duplicates","android":"implemented","desktop":"planned","notes":"Review-only likely-duplicate groups use normalized artist/title and duration tolerance; Cathode never deletes automatically"},
     {"id":"library.metadata-overrides","android":"implemented","desktop":"planned","desktopEquivalent":"Non-destructive metadata and artwork overrides"},
     {"id":"visual.artwork-theme","android":"implemented","desktop":"planned","desktopEquivalent":"Artwork sampling, blur, gradients, and particles"},
     {"id":"profile.customization","android":"implemented","desktop":"planned","desktopEquivalent":"Local profile and appearance settings"},

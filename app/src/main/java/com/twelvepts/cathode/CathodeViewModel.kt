@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.twelvepts.cathode.data.AudioLibraryRepository
 import com.twelvepts.cathode.data.CathodeLibraryDatabase
 import com.twelvepts.cathode.data.PlaylistSummary
+import com.twelvepts.cathode.data.SmartPlaylist
 import com.twelvepts.cathode.data.TransmissionYear
 import com.twelvepts.cathode.data.CathodeDiagnostics
 import com.twelvepts.cathode.model.AudioTrack
@@ -24,6 +25,7 @@ data class LibraryState(
     val favoriteKeys: Set<String> = emptySet(),
     val playlists: List<PlaylistSummary> = emptyList(),
     val playlistTrackKeys: Map<Long, List<String>> = emptyMap(),
+    val smartPlaylists: List<SmartPlaylist> = emptyList(),
     val recentTrackKeys: List<String> = emptyList(),
     val playCounts: Map<String, Int> = emptyMap(),
     val transmissionYears: Map<Int, TransmissionYear> = emptyMap(),
@@ -68,6 +70,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
             favoriteKeys = database.favoriteKeys(),
             playlists = playlists,
             playlistTrackKeys = playlists.associate { it.id to database.playlistTrackKeys(it.id) },
+            smartPlaylists = database.smartPlaylists(),
             recentTrackKeys = database.recentTrackKeys(),
             playCounts = database.playCounts(),
             transmissionYears = database.transmissionYears(),
@@ -121,6 +124,21 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
 
     fun movePlaylistTrack(playlistId: Long, track: AudioTrack, direction: Int) {
         database.movePlaylistTrack(playlistId, track.stableKey, direction)
+        refreshCollections()
+    }
+
+    fun createSmartPlaylist(name: String, rule: String, value: String) {
+        database.createSmartPlaylist(name, rule, value)
+        refreshCollections()
+    }
+
+    fun updateSmartPlaylist(id: Long, name: String, rule: String, value: String) {
+        database.updateSmartPlaylist(id, name, rule, value)
+        refreshCollections()
+    }
+
+    fun deleteSmartPlaylist(id: Long) {
+        database.deleteSmartPlaylist(id)
         refreshCollections()
     }
 

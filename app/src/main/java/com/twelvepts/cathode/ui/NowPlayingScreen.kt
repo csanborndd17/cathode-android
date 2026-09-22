@@ -50,9 +50,12 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -155,14 +158,26 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                         style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                     )
-                    Row {
+                    Spacer(Modifier.size(48.dp))
+                }
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    item {
                         IconButton(onClick = { showLyrics = true }) {
                             Icon(Icons.Default.Lyrics, "Open lyrics", tint = if (state.lyrics.isBlank()) CathodeMuted else CathodeCyan)
                         }
+                    }
+                    item {
                         IconButton(onClick = { showSleepTimer = true }) {
                             Icon(Icons.Default.Bedtime, "Sleep timer", tint = if (state.sleepTimerEndEpochMs > 0) CathodeCyan else CathodeMuted)
                         }
+                    }
+                    item {
                         IconButton(onClick = { showAudioLab = true }) { Icon(Icons.Default.Equalizer, "Open Audio Lab", tint = CathodeCyan) }
+                    }
+                    item {
                         IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, "Open queue", tint = CathodeCyan) }
                     }
                 }
@@ -432,42 +447,64 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
             ) {
                 IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Back to now playing", tint = CathodeCyan) }
                 Column(Modifier.weight(1f)) {
-                    Text("PLAYBACK QUEUE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    Text("${state.queue.size} tracks", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
-                }
-                TextButton(onClick = player::removeQueueDuplicates, enabled = state.queue.map { it.mediaId }.distinct().size < state.queue.size) {
-                    Text("Deduplicate")
+                    Text("QUEUE", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text("${(state.queue.size - state.mediaItemIndex - 1).coerceAtLeast(0)} tracks upcoming", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                 }
                 TextButton(onClick = player::clearUpcoming, enabled = state.mediaItemIndex + 1 < state.queue.size) {
-                    Text("Clear")
+                    Text("Clear upcoming")
                 }
             }
-            LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(state.queue, key = { index, item -> "${item.mediaId}-$index" }) { index, item ->
-                    val current = index == state.mediaItemIndex
+            val current = state.queue.getOrNull(state.mediaItemIndex)
+            if (current != null) {
+                Text("NOW PLAYING", color = CathodeCyan, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
+                Card(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
                     Row(
                         Modifier.fillMaxWidth()
-                            .background(if (current) CathodeCyan.copy(alpha = .12f) else CathodeBlack)
-                            .clickable { player.playQueueIndex(index) }
-                            .padding(start = 16.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                            .background(CathodeCyan.copy(alpha = .12f))
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AsyncImage(item.artworkUri, null, Modifier.size(48.dp).clip(MaterialTheme.shapes.small).background(CathodePanel), contentScale = ContentScale.Crop)
+                        AsyncImage(current.artworkUri, null, Modifier.size(62.dp).clip(MaterialTheme.shapes.small).background(CathodePanel), contentScale = ContentScale.Crop)
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text(item.title, color = if (current) CathodeCyan else CathodeText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(item.artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                        }
-                        IconButton(onClick = { player.moveQueueItem(index, index - 1) }, enabled = index > 0) {
-                            Icon(Icons.Default.ArrowUpward, "Move up", tint = CathodeMuted)
-                        }
-                        IconButton(onClick = { player.moveQueueItem(index, index + 1) }, enabled = index < state.queue.lastIndex) {
-                            Icon(Icons.Default.ArrowDownward, "Move down", tint = CathodeMuted)
-                        }
-                        IconButton(onClick = { player.removeQueueItem(index) }, enabled = state.queue.size > 1) {
-                            Icon(Icons.Default.Delete, "Remove from queue", tint = CathodeMuted)
+                            Text(current.title, color = CathodeCyan, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(current.artist, color = CathodeMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
+            }
+            Row(Modifier.fillMaxWidth().padding(start = 18.dp, top = 18.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("UP NEXT", Modifier.weight(1f), color = CathodeCyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                TextButton(onClick = player::removeQueueDuplicates, enabled = state.queue.map { it.mediaId }.distinct().size < state.queue.size) { Text("Remove duplicates") }
+            }
+            LazyColumn(Modifier.fillMaxSize()) {
+                val upcoming = state.queue.drop(state.mediaItemIndex + 1)
+                itemsIndexed(upcoming, key = { index, item -> "${item.mediaId}-${state.mediaItemIndex + 1 + index}" }) { offset, item ->
+                    val index = state.mediaItemIndex + 1 + offset
+                    var menu by remember(item.mediaId, index) { mutableStateOf(false) }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { player.playQueueIndex(index) }
+                            .padding(start = 16.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${offset + 1}", color = CathodeDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(end = 10.dp))
+                        AsyncImage(item.artworkUri, null, Modifier.size(48.dp).clip(MaterialTheme.shapes.small).background(CathodePanel), contentScale = ContentScale.Crop)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(item.title, color = CathodeText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(item.artist, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Queue actions", tint = CathodeMuted) }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Play now") }, onClick = { player.playQueueIndex(index); menu = false })
+                                if (offset > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { player.moveQueueItem(index, index - 1); menu = false })
+                                if (offset < upcoming.lastIndex) DropdownMenuItem(text = { Text("Move down") }, onClick = { player.moveQueueItem(index, index + 1); menu = false })
+                                if (offset > 0) DropdownMenuItem(text = { Text("Move to next") }, onClick = { player.moveQueueItem(index, state.mediaItemIndex + 1); menu = false })
+                                DropdownMenuItem(text = { Text("Remove") }, onClick = { player.removeQueueItem(index); menu = false })
+                            }
+                        }
+                    }
+                }
+                if (upcoming.isEmpty()) item { Text("The queue ends after this track.", color = CathodeMuted, modifier = Modifier.padding(22.dp)) }
             }
         }
     }

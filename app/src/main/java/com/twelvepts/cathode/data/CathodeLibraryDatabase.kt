@@ -10,6 +10,7 @@ import java.util.Date
 import java.util.Locale
 
 data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int, val artworkUri: String? = null)
+data class SmartPlaylist(val id: Long, val name: String, val rule: String, val value: String)
 data class ImportSessionTrack(val artist: String, val title: String, val status: String = "PENDING")
 data class ImportSession(val inputText: String, val sourceId: String, val tracks: List<ImportSessionTrack>)
 data class ListeningStat(val trackKey: String, val playCount: Int, val listenedMs: Long)
@@ -24,7 +25,7 @@ data class TransmissionYear(
 }
 
 class CathodeLibraryDatabase(context: Context) :
-    SQLiteOpenHelper(context, "cathode_library.db", null, 4) {
+    SQLiteOpenHelper(context, "cathode_library.db", null, 5) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE favorites (track_key TEXT PRIMARY KEY, added_at INTEGER NOT NULL)")
@@ -33,6 +34,7 @@ class CathodeLibraryDatabase(context: Context) :
         db.execSQL("CREATE TABLE history (track_key TEXT PRIMARY KEY, play_count INTEGER NOT NULL, last_played INTEGER NOT NULL)")
         createTransmissionTables(db)
         createImportTables(db)
+        createSmartPlaylistTable(db)
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -44,6 +46,7 @@ class CathodeLibraryDatabase(context: Context) :
         if (oldVersion < 2) createTransmissionTables(db)
         if (oldVersion < 3) createImportTables(db)
         if (oldVersion < 4) db.execSQL("ALTER TABLE playlists ADD COLUMN artwork_uri TEXT")
+        if (oldVersion < 5) createSmartPlaylistTable(db)
     }
 
     private fun createTransmissionTables(db: SQLiteDatabase) {
@@ -56,6 +59,30 @@ class CathodeLibraryDatabase(context: Context) :
         db.execSQL("CREATE TABLE IF NOT EXISTS import_sessions (id INTEGER PRIMARY KEY, input_text TEXT NOT NULL, source_id TEXT NOT NULL, updated_at INTEGER NOT NULL)")
         db.execSQL("CREATE TABLE IF NOT EXISTS import_session_tracks (session_id INTEGER NOT NULL, position INTEGER NOT NULL, artist TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', PRIMARY KEY(session_id, position), FOREIGN KEY(session_id) REFERENCES import_sessions(id) ON DELETE CASCADE)")
     }
+
+    private fun createSmartPlaylistTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS smart_playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, rule TEXT NOT NULL, rule_value TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)")
+    }
+
+    fun smartPlaylists(): List<SmartPlaylist> = readableDatabase.rawQuery(
+        "SELECT id,name,rule,rule_value FROM smart_playlists ORDER BY created_at DESC", null,
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(SmartPlaylist(cursor.getLong(0), cursor.getString(1), cursor.getString(2), cursor.getString(3))) } }
+
+    fun createSmartPlaylist(name: String, rule: String, value: String): Long {
+        if (name.isBlank()) return -1
+        return writableDatabase.insert("smart_playlists", null, ContentValues().apply {
+            put("name", name.trim()); put("rule", rule); put("rule_value", value.trim()); put("created_at", System.currentTimeMillis())
+        })
+    }
+
+    fun updateSmartPlaylist(id: Long, name: String, rule: String, value: String) {
+        if (name.isBlank()) return
+        writableDatabase.update("smart_playlists", ContentValues().apply {
+            put("name", name.trim()); put("rule", rule); put("rule_value", value.trim())
+        }, "id=?", arrayOf(id.toString()))
+    }
+
+    fun deleteSmartPlaylist(id: Long) { writableDatabase.delete("smart_playlists", "id=?", arrayOf(id.toString())) }
 
     fun saveImportSession(inputText: String, sourceId: String, tracks: List<ImportSessionTrack>) {
         val db = writableDatabase

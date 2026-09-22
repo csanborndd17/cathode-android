@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
+import com.twelvepts.cathode.data.SmartPlaylist
 import com.twelvepts.cathode.model.AudioTrack
 import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
@@ -140,7 +141,7 @@ fun HomeScreen(
     fun visible(name: String) = name !in settings.hiddenHomeSections
 
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        columns = GridCells.Adaptive(164.dp),
         modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -305,6 +306,9 @@ fun LibraryScreen(
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onMovePlaylistTrack: (Long, AudioTrack, Int) -> Unit,
+    onCreateSmartPlaylist: (String, String, String) -> Unit,
+    onUpdateSmartPlaylist: (Long, String, String, String) -> Unit,
+    onDeleteSmartPlaylist: (Long) -> Unit,
     onProfile: () -> Unit,
     settings: CathodeSettings,
     store: CathodeSettingsStore,
@@ -324,6 +328,11 @@ fun LibraryScreen(
     var editingPlaylist by remember { mutableStateOf(false) }
     var editedPlaylistName by remember { mutableStateOf("") }
     var editedPlaylistArtwork by remember { mutableStateOf<String?>(null) }
+    var editingSmartPlaylist by remember { mutableStateOf<SmartPlaylist?>(null) }
+    var smartPlaylistDialog by remember { mutableStateOf(false) }
+    var smartName by remember { mutableStateOf("") }
+    var smartRule by remember { mutableStateOf("FAVORITES") }
+    var smartValue by remember { mutableStateOf("") }
     val context = LocalContext.current
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
@@ -340,7 +349,10 @@ fun LibraryScreen(
     }
     val sorted = remember(filteredTracks, settings.librarySort) { sortTracks(filteredTracks, settings.librarySort) }
     val favorites = sorted.filter { it.stableKey in state.favoriteKeys }
-    val groups = remember(sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys) {
+    val groups = remember(
+        sorted, settings.libraryCategory, state.playlists, state.playlistTrackKeys,
+        state.smartPlaylists, state.favoriteKeys, state.recentTrackKeys, state.playCounts,
+    ) {
         when (settings.libraryCategory) {
             LibraryCategory.SONGS, LibraryCategory.FAVORITES -> emptyList()
             LibraryCategory.ALBUMS -> sorted.groupBy { "${it.artist}\u0000${it.album}" }
@@ -354,11 +366,20 @@ fun LibraryScreen(
                 val tracks = keys.mapNotNull { key -> sorted.firstOrNull { it.stableKey == key } }
                 LibraryGroup("playlist:${playlist.id}", playlist.name, "${playlist.trackCount} songs", tracks, playlist.artworkUri)
             }
+            LibraryCategory.SMART_PLAYLISTS -> state.smartPlaylists.map { playlist ->
+                val tracks = smartPlaylistTracks(playlist, sorted, state)
+                LibraryGroup("smart:${playlist.id}", playlist.name, "${playlist.rule.smartRuleLabel()} · ${tracks.size} songs", tracks)
+            }
+            LibraryCategory.DUPLICATES -> sorted.groupBy(::duplicateTrackKey)
+                .filterValues(::containsLikelyDuplicate)
+                .map { (key, tracks) -> LibraryGroup("duplicate:$key", tracks.first().title, "${tracks.first().artist} · ${tracks.size} likely copies", tracks) }
         }.sortedBy { it.title.lowercase() }
     }
     val detail = groups.firstOrNull { it.key == selectedGroup }
     val detailPlaylistId = detail?.key?.removePrefix("playlist:")?.toLongOrNull()
     val detailPlaylist = state.playlists.firstOrNull { it.id == detailPlaylistId }
+    val detailSmartPlaylistId = detail?.key?.takeIf { it.startsWith("smart:") }?.removePrefix("smart:")?.toLongOrNull()
+    val detailSmartPlaylist = state.smartPlaylists.firstOrNull { it.id == detailSmartPlaylistId }
     val playlistArtworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -390,6 +411,11 @@ fun LibraryScreen(
             if (settings.libraryCategory == LibraryCategory.PLAYLISTS && detail == null) {
                 IconButton(onClick = { creatingPlaylist = true }) { Icon(Icons.Default.Add, "Create playlist", tint = CathodeCyan) }
             }
+            if (settings.libraryCategory == LibraryCategory.SMART_PLAYLISTS && detail == null) {
+                IconButton(onClick = {
+                    editingSmartPlaylist = null; smartName = ""; smartRule = "FAVORITES"; smartValue = ""; smartPlaylistDialog = true
+                }) { Icon(Icons.Default.Add, "Create smart playlist", tint = CathodeCyan) }
+            }
             if (detailPlaylistId != null) {
                 IconButton(onClick = {
                     editedPlaylistName = detailPlaylist?.name.orEmpty()
@@ -398,6 +424,18 @@ fun LibraryScreen(
                 }) { Icon(Icons.Default.Edit, "Edit playlist", tint = CathodeCyan) }
                 IconButton(onClick = { onDeletePlaylist(detailPlaylistId); selectedGroup = null }) {
                     Icon(Icons.Default.Delete, "Delete playlist", tint = CathodeError)
+                }
+            }
+            if (detailSmartPlaylist != null) {
+                IconButton(onClick = {
+                    editingSmartPlaylist = detailSmartPlaylist
+                    smartName = detailSmartPlaylist.name
+                    smartRule = detailSmartPlaylist.rule
+                    smartValue = detailSmartPlaylist.value
+                    smartPlaylistDialog = true
+                }) { Icon(Icons.Default.Edit, "Edit smart playlist", tint = CathodeCyan) }
+                IconButton(onClick = { onDeleteSmartPlaylist(detailSmartPlaylist.id); selectedGroup = null }) {
+                    Icon(Icons.Default.Delete, "Delete smart playlist", tint = CathodeError)
                 }
             }
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search library", tint = CathodeCyan) }
@@ -458,7 +496,7 @@ fun LibraryScreen(
                             }
                         }
                     }
-                    if (settings.libraryCategory != LibraryCategory.PLAYLISTS) Box {
+                    if (settings.libraryCategory !in listOf(LibraryCategory.PLAYLISTS, LibraryCategory.SMART_PLAYLISTS)) Box {
                         TextButton(onClick = { sortMenu = true }) { Text("Sort: ${settings.librarySort.label}") }
                         DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                             LibrarySort.entries.forEach { sort ->
@@ -488,7 +526,12 @@ fun LibraryScreen(
                         }
                     }
                 } else if (groups.isEmpty()) {
-                    MessagePanel("No playlists", "Create a playlist with the plus button.", CathodeMuted)
+                    val message = when (settings.libraryCategory) {
+                        LibraryCategory.SMART_PLAYLISTS -> "Create a smart playlist with the plus button."
+                        LibraryCategory.DUPLICATES -> "No likely duplicate tracks were detected."
+                        else -> "Create a playlist with the plus button."
+                    }
+                    MessagePanel(if (settings.libraryCategory == LibraryCategory.DUPLICATES) "No duplicates" else "No playlists", message, CathodeMuted)
                 } else if (settings.libraryGrid) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(150.dp), modifier = Modifier.weight(1f),
@@ -535,6 +578,32 @@ fun LibraryScreen(
             editingPlaylist = false
         }) { Text("Save") } },
         dismissButton = { TextButton(onClick = { editingPlaylist = false }) { Text("Cancel") } },
+    )
+
+    if (smartPlaylistDialog) AlertDialog(
+        onDismissRequest = { smartPlaylistDialog = false },
+        title = { Text(if (editingSmartPlaylist == null) "New smart playlist" else "Edit smart playlist") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(smartName, { smartName = it }, label = { Text("Name") }, singleLine = true)
+            Text("Include tracks that match", color = CathodeMuted)
+            listOf("FAVORITES", "RECENT", "MOST_PLAYED", "TAG", "ARTIST", "ALBUM", "LOSSLESS").forEach { rule ->
+                FilterChip(selected = smartRule == rule, onClick = { smartRule = rule }, label = { Text(rule.smartRuleLabel()) })
+            }
+            if (smartRule in listOf("TAG", "ARTIST", "ALBUM")) OutlinedTextField(
+                smartValue, { smartValue = it }, label = { Text(smartRule.smartRuleLabel()) }, singleLine = true,
+            )
+            Text("Smart playlists update automatically as your library and listening history change.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+        } },
+        confirmButton = { TextButton(
+            enabled = smartName.isNotBlank() && (smartRule !in listOf("TAG", "ARTIST", "ALBUM") || smartValue.isNotBlank()),
+            onClick = {
+                val editing = editingSmartPlaylist
+                if (editing == null) onCreateSmartPlaylist(smartName, smartRule, smartValue)
+                else onUpdateSmartPlaylist(editing.id, smartName, smartRule, smartValue)
+                smartPlaylistDialog = false
+            },
+        ) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { smartPlaylistDialog = false }) { Text("Cancel") } },
     )
 
     if (choosingBulkPlaylist) AlertDialog(
@@ -592,6 +661,41 @@ fun LibraryScreen(
 }
 
 private fun Set<String>.toggle(key: String): Set<String> = if (key in this) this - key else this + key
+
+private fun String.smartRuleLabel(): String = when (this) {
+    "FAVORITES" -> "Favorites"
+    "RECENT" -> "Recently played"
+    "MOST_PLAYED" -> "Most played"
+    "TAG" -> "Tag contains"
+    "ARTIST" -> "Artist contains"
+    "ALBUM" -> "Album contains"
+    "LOSSLESS" -> "Lossless audio"
+    else -> lowercase().replaceFirstChar(Char::uppercase)
+}
+
+private fun smartPlaylistTracks(playlist: SmartPlaylist, tracks: List<AudioTrack>, state: LibraryState): List<AudioTrack> = when (playlist.rule) {
+    "FAVORITES" -> tracks.filter { it.stableKey in state.favoriteKeys }
+    "RECENT" -> state.recentTrackKeys.mapNotNull { key -> tracks.firstOrNull { it.stableKey == key } }
+    "MOST_PLAYED" -> tracks.filter { (state.playCounts[it.stableKey] ?: 0) > 0 }.sortedByDescending { state.playCounts[it.stableKey] ?: 0 }
+    "TAG" -> tracks.filter { it.tags.contains(playlist.value, true) }
+    "ARTIST" -> tracks.filter { it.artist.contains(playlist.value, true) }
+    "ALBUM" -> tracks.filter { it.album.contains(playlist.value, true) }
+    "LOSSLESS" -> tracks.filter { it.audioQuality.name in listOf("LOSSLESS", "HI_RES") }
+    else -> emptyList()
+}
+
+private fun duplicateTrackKey(track: AudioTrack): String {
+    fun normalize(value: String) = value.lowercase().replace(Regex("[^a-z0-9]+"), "").trim()
+    return "${normalize(track.artist)}|${normalize(track.title)}"
+}
+
+private fun containsLikelyDuplicate(tracks: List<AudioTrack>): Boolean = tracks.indices.any { left ->
+    (left + 1 until tracks.size).any { right ->
+        val a = tracks[left].durationMs
+        val b = tracks[right].durationMs
+        (a == 0L || b == 0L || kotlin.math.abs(a - b) <= 2_000L) && tracks[left].stableKey != tracks[right].stableKey
+    }
+}
 
 private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>, val artworkUri: String? = null)
 

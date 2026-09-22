@@ -19,6 +19,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -143,6 +145,13 @@ class MainActivity : ComponentActivity() {
             previousCrashHandler?.uncaughtException(thread, throwable)
         }
         enableEdgeToEdge()
+        window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
         playerConnection = PlayerConnection(this)
         settingsStore = CathodeSettingsStore(this)
         ContextCompat.registerReceiver(
