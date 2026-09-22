@@ -25,15 +25,27 @@ class SpotifyPlaylistResolver(private val context: Context) {
         private const val CALLBACK_PORT = 43821
     }
     private val preferences = context.getSharedPreferences("spotify_connection", Context.MODE_PRIVATE)
+    private val secure = SecureStore(context, "spotify_secure", "cathode_spotify_credentials")
+
+    init {
+        listOf("access_token", "refresh_token").forEach { key ->
+            preferences.getString(key, null)?.let { old ->
+                if (secure.getString(key) == null) secure.putString(key, old)
+                preferences.edit().remove(key).apply()
+            }
+        }
+    }
 
     var clientId: String
         get() = preferences.getString("client_id", "").orEmpty()
         set(value) { preferences.edit().putString("client_id", value.trim()).apply() }
 
-    val isConnected: Boolean get() = preferences.getString("refresh_token", null) != null
+    val isConnected: Boolean get() = secure.getString("refresh_token") != null
 
     fun disconnect() {
-        preferences.edit().remove("access_token").remove("refresh_token").remove("expires_at").apply()
+        secure.remove("access_token")
+        secure.remove("refresh_token")
+        preferences.edit().remove("expires_at").apply()
     }
 
     suspend fun connect(): Result<Unit> = runCatching {
@@ -105,10 +117,10 @@ class SpotifyPlaylistResolver(private val context: Context) {
     }
 
     private suspend fun validAccessToken(): String {
-        val access = preferences.getString("access_token", null)
+        val access = secure.getString("access_token")
         val expiresAt = preferences.getLong("expires_at", 0L)
         if (access != null && System.currentTimeMillis() < expiresAt - 60_000L) return access
-        val refresh = preferences.getString("refresh_token", null) ?: error("Connect Spotify in Settings first.")
+        val refresh = secure.getString("refresh_token") ?: error("Connect Spotify in Settings first.")
         val response = postToken(mapOf("client_id" to clientId, "grant_type" to "refresh_token", "refresh_token" to refresh))
         saveTokens(response, refresh)
         return response.getString("access_token")
@@ -148,11 +160,9 @@ class SpotifyPlaylistResolver(private val context: Context) {
     }
 
     private fun saveTokens(json: JSONObject, fallbackRefresh: String?) {
-        preferences.edit()
-            .putString("access_token", json.getString("access_token"))
-            .putString("refresh_token", json.optString("refresh_token").takeIf(String::isNotBlank) ?: fallbackRefresh)
-            .putLong("expires_at", System.currentTimeMillis() + json.optLong("expires_in", 3600L) * 1000L)
-            .apply()
+        secure.putString("access_token", json.getString("access_token"))
+        secure.putString("refresh_token", json.optString("refresh_token").takeIf(String::isNotBlank) ?: fallbackRefresh)
+        preferences.edit().putLong("expires_at", System.currentTimeMillis() + json.optLong("expires_in", 3600L) * 1000L).apply()
     }
 
     private fun HttpURLConnection.responseText(): String =

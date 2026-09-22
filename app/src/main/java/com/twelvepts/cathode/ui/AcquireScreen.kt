@@ -49,10 +49,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.twelvepts.cathode.BuildConfig
 import com.twelvepts.cathode.data.SpotifyPlaylistResolver
 import com.twelvepts.cathode.data.YouTubePlaylistResolver
+import com.twelvepts.cathode.data.CathodeLibraryDatabase
+import com.twelvepts.cathode.data.ImportSessionTrack
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
-import org.json.JSONObject
 
 private data class DownloadSignal(
     val id: Long,
@@ -119,6 +120,7 @@ fun AcquireScreen() {
     val scope = rememberCoroutineScope()
     val spotify = remember { SpotifyPlaylistResolver(context.applicationContext) }
     val youtube = remember { YouTubePlaylistResolver(context.applicationContext) }
+    val libraryDatabase = remember { CathodeLibraryDatabase(context.applicationContext) }
     val connectivity = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
     var online by remember { mutableStateOf(connectivity.isOnline()) }
     var selectedSource by remember { mutableStateOf<DiscoverSource?>(null) }
@@ -181,6 +183,22 @@ fun AcquireScreen() {
         onDispose { runCatching { connectivity.unregisterNetworkCallback(callback) } }
     }
     LaunchedEffect(Unit) {
+        val legacy = context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE)
+        if (libraryDatabase.latestImportSession() == null) {
+            val oldTracks = decodeLegacyImportedTracks(legacy.getString("draft_tracks", null))
+            if (oldTracks.isNotEmpty()) {
+                val completed = legacy.getStringSet("draft_completed", emptySet()).orEmpty()
+                val skipped = legacy.getStringSet("draft_skipped", emptySet()).orEmpty()
+                libraryDatabase.saveImportSession(
+                    legacy.getString("draft_text", "").orEmpty(),
+                    legacy.getString("draft_source", discoverSources.first().id).orEmpty(),
+                    oldTracks.map { track -> ImportSessionTrack(track.artist, track.title, when (track.query) {
+                        in completed -> "DONE"; in skipped -> "SKIPPED"; else -> "PENDING"
+                    }) },
+                )
+                legacy.edit().clear().apply()
+            }
+        }
         while (true) {
             downloads = readDownloadSnapshot(context)
             delay(750)
@@ -407,22 +425,34 @@ fun AcquireScreen() {
                 if (importedTracks.isNotEmpty()) {
                     Text("${completedImports.size}/${importedTracks.size} searches opened", color = CathodeCyan)
                     TextButton(onClick = {
-                        context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE).edit()
-                            .putString("draft_text", importText)
-                            .putString("draft_tracks", encodeImportedTracks(importedTracks))
-                            .putString("draft_source", importSource.id)
-                            .putStringSet("draft_completed", completedImports)
-                            .putStringSet("draft_skipped", skippedImports)
-                            .apply()
+                        libraryDatabase.saveImportSession(
+                            importText,
+                            importSource.id,
+                            importedTracks.map { track ->
+                                ImportSessionTrack(
+                                    track.artist,
+                                    track.title,
+                                    when (track.query) {
+                                        in completedImports -> "DONE"
+                                        in skippedImports -> "SKIPPED"
+                                        else -> "PENDING"
+                                    },
+                                )
+                            },
+                        )
                         Toast.makeText(context, "Conversion session saved", Toast.LENGTH_SHORT).show()
                     }) { Text("Save session") }
                     TextButton(onClick = {
-                        val preferences = context.getSharedPreferences("cathode_imports", Context.MODE_PRIVATE)
-                        importText = preferences.getString("draft_text", "").orEmpty()
-                        importedTracks = decodeImportedTracks(preferences.getString("draft_tracks", null)).ifEmpty { parsePlaylistText(importText) }
-                        importSource = discoverSources.firstOrNull { it.id == preferences.getString("draft_source", "") } ?: discoverSources.first()
-                        completedImports = preferences.getStringSet("draft_completed", emptySet()).orEmpty()
-                        skippedImports = preferences.getStringSet("draft_skipped", emptySet()).orEmpty()
+                        val session = libraryDatabase.latestImportSession()
+                        if (session == null) {
+                            Toast.makeText(context, "No saved conversion session", Toast.LENGTH_SHORT).show()
+                        } else {
+                            importText = session.inputText
+                            importedTracks = session.tracks.map { ImportedTrack(it.artist, it.title) }
+                            importSource = discoverSources.firstOrNull { it.id == session.sourceId } ?: discoverSources.first()
+                            completedImports = session.tracks.filter { it.status == "DONE" }.map { ImportedTrack(it.artist, it.title).query }.toSet()
+                            skippedImports = session.tracks.filter { it.status == "SKIPPED" }.map { ImportedTrack(it.artist, it.title).query }.toSet()
+                        }
                     }) { Text("Resume saved session") }
                 }
                 Text("Search source", color = CathodeCyan, fontWeight = FontWeight.Bold)
@@ -499,6 +529,7 @@ fun AcquireScreen() {
         onDispose {
             webView?.apply { stopLoading(); loadUrl("about:blank"); clearHistory(); removeAllViews(); destroy() }
             webView = null
+            libraryDatabase.close()
         }
     }
 }
@@ -643,17 +674,12 @@ private fun parsePlaylistText(input: String): List<ImportedTrack> = input.lineSe
     .distinctBy { it.query.lowercase() }
     .toList()
 
-private fun encodeImportedTracks(tracks: List<ImportedTrack>): String = JSONArray().apply {
-    tracks.forEach { track -> put(JSONObject().put("artist", track.artist).put("title", track.title)) }
-}.toString()
-
-private fun decodeImportedTracks(value: String?): List<ImportedTrack> = runCatching {
+private fun decodeLegacyImportedTracks(value: String?): List<ImportedTrack> = runCatching {
     val array = JSONArray(value ?: return emptyList())
     buildList(array.length()) {
         for (index in 0 until array.length()) {
             val row = array.optJSONObject(index) ?: continue
-            val track = ImportedTrack(row.optString("artist"), row.optString("title"))
-            if (track.query.isNotBlank()) add(track)
+            ImportedTrack(row.optString("artist"), row.optString("title")).takeIf { it.query.isNotBlank() }?.let(::add)
         }
     }
 }.getOrDefault(emptyList())

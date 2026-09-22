@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.twelvepts.cathode.LibraryState
@@ -48,7 +49,7 @@ fun SettingsScreen(
     var spotifyConnected by remember { mutableStateOf(spotify.isConnected) }
     var spotifyConnecting by remember { mutableStateOf(false) }
     var spotifyMessage by remember { mutableStateOf<String?>(null) }
-    var youtubeApiKey by remember { mutableStateOf(youtube.apiKey) }
+    var youtubeApiKey by remember { mutableStateOf("") }
     var youtubeSaved by remember { mutableStateOf(youtube.isConfigured) }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
     var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
@@ -205,6 +206,8 @@ fun SettingsScreen(
                     value = youtubeApiKey,
                     onValueChange = { youtubeApiKey = it.trim(); youtubeSaved = false },
                     label = { Text("YouTube Data API key") },
+                    placeholder = { if (youtubeSaved) Text("Stored securely — enter a new key to replace it") },
+                    visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -220,6 +223,7 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(enabled = youtubeApiKey.isNotBlank(), onClick = {
                         youtube.apiKey = youtubeApiKey
+                        youtubeApiKey = ""
                         youtubeSaved = true
                     }) { Text("Save API key") }
                     if (youtube.isConfigured || youtubeSaved) TextButton(onClick = {

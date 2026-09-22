@@ -10,6 +10,8 @@ import java.util.Date
 import java.util.Locale
 
 data class PlaylistSummary(val id: Long, val name: String, val trackCount: Int)
+data class ImportSessionTrack(val artist: String, val title: String, val status: String = "PENDING")
+data class ImportSession(val inputText: String, val sourceId: String, val tracks: List<ImportSessionTrack>)
 data class ListeningStat(val trackKey: String, val playCount: Int, val listenedMs: Long)
 data class TransmissionYear(
     val year: Int,
@@ -22,7 +24,7 @@ data class TransmissionYear(
 }
 
 class CathodeLibraryDatabase(context: Context) :
-    SQLiteOpenHelper(context, "cathode_library.db", null, 2) {
+    SQLiteOpenHelper(context, "cathode_library.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE favorites (track_key TEXT PRIMARY KEY, added_at INTEGER NOT NULL)")
@@ -30,6 +32,7 @@ class CathodeLibraryDatabase(context: Context) :
         db.execSQL("CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL, track_key TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (playlist_id, track_key), FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE)")
         db.execSQL("CREATE TABLE history (track_key TEXT PRIMARY KEY, play_count INTEGER NOT NULL, last_played INTEGER NOT NULL)")
         createTransmissionTables(db)
+        createImportTables(db)
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -39,12 +42,48 @@ class CathodeLibraryDatabase(context: Context) :
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createTransmissionTables(db)
+        if (oldVersion < 3) createImportTables(db)
     }
 
     private fun createTransmissionTables(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS listening_stats (track_key TEXT NOT NULL, year INTEGER NOT NULL, play_count INTEGER NOT NULL DEFAULT 0, listened_ms INTEGER NOT NULL DEFAULT 0, last_played INTEGER NOT NULL, PRIMARY KEY(track_key, year))")
         db.execSQL("CREATE TABLE IF NOT EXISTS listening_events (id INTEGER PRIMARY KEY AUTOINCREMENT, track_key TEXT NOT NULL, year INTEGER NOT NULL, day_key TEXT NOT NULL, hour INTEGER NOT NULL, played_at INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS listening_events_year ON listening_events(year)")
+    }
+
+    private fun createImportTables(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS import_sessions (id INTEGER PRIMARY KEY, input_text TEXT NOT NULL, source_id TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS import_session_tracks (session_id INTEGER NOT NULL, position INTEGER NOT NULL, artist TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', PRIMARY KEY(session_id, position), FOREIGN KEY(session_id) REFERENCES import_sessions(id) ON DELETE CASCADE)")
+    }
+
+    fun saveImportSession(inputText: String, sourceId: String, tracks: List<ImportSessionTrack>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("import_session_tracks", "session_id=1", null)
+            db.insertWithOnConflict("import_sessions", null, ContentValues().apply {
+                put("id", 1); put("input_text", inputText); put("source_id", sourceId); put("updated_at", System.currentTimeMillis())
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            tracks.forEachIndexed { position, track ->
+                db.insert("import_session_tracks", null, ContentValues().apply {
+                    put("session_id", 1); put("position", position); put("artist", track.artist); put("title", track.title); put("status", track.status)
+                })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    fun latestImportSession(): ImportSession? {
+        val header = readableDatabase.rawQuery("SELECT input_text,source_id FROM import_sessions WHERE id=1", null).use {
+            if (!it.moveToFirst()) return null
+            it.getString(0) to it.getString(1)
+        }
+        val tracks = readableDatabase.rawQuery(
+            "SELECT artist,title,status FROM import_session_tracks WHERE session_id=1 ORDER BY position", null,
+        ).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(ImportSessionTrack(cursor.getString(0), cursor.getString(1), cursor.getString(2))) }
+        }
+        return ImportSession(header.first, header.second, tracks)
     }
 
     fun favoriteKeys(): Set<String> = readableDatabase.rawQuery("SELECT track_key FROM favorites", null).use { cursor ->

@@ -13,14 +13,22 @@ data class YouTubeTrack(val artist: String, val title: String)
 
 class YouTubePlaylistResolver(context: Context) {
     private val preferences = context.getSharedPreferences("youtube_connection", Context.MODE_PRIVATE)
+    private val secure = SecureStore(context, "youtube_secure", "cathode_youtube_credentials")
+
+    init {
+        preferences.getString("api_key", null)?.let { old ->
+            if (secure.getString("api_key") == null) secure.putString("api_key", old)
+            preferences.edit().remove("api_key").apply()
+        }
+    }
 
     var apiKey: String
-        get() = preferences.getString("api_key", "").orEmpty()
-        set(value) { preferences.edit().putString("api_key", value.trim()).apply() }
+        get() = secure.getString("api_key").orEmpty()
+        set(value) { secure.putString("api_key", value.trim()) }
 
     val isConfigured: Boolean get() = apiKey.isNotBlank()
 
-    fun clear() { preferences.edit().remove("api_key").apply() }
+    fun clear() { secure.remove("api_key") }
 
     suspend fun resolve(playlistUrl: String): Result<List<YouTubeTrack>> = runCatching {
         require(apiKey.isNotBlank()) { "Add a YouTube Data API key in Settings first." }
