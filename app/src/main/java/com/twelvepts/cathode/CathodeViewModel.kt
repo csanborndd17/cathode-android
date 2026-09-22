@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 data class LibraryState(
     val loading: Boolean = false,
@@ -25,6 +26,9 @@ data class LibraryState(
     val recentTrackKeys: List<String> = emptyList(),
     val playCounts: Map<String, Int> = emptyMap(),
     val transmissionYears: Map<Int, TransmissionYear> = emptyMap(),
+    val analysisRunning: Boolean = false,
+    val analysisCompleted: Int = 0,
+    val analysisTotal: Int = 0,
 )
 
 class CathodeViewModel(application: Application) : AndroidViewModel(application) {
@@ -32,6 +36,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
     private val database = CathodeLibraryDatabase(application)
     private val _library = MutableStateFlow(LibraryState())
     val library: StateFlow<LibraryState> = _library.asStateFlow()
+    private var analysisJob: Job? = null
 
     fun setPermission(granted: Boolean) {
         _library.value = _library.value.copy(permissionGranted = granted)
@@ -137,5 +142,29 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         _library.value = _library.value.copy(
             tracks = _library.value.tracks.map { if (it.id == updated.id) updated else it },
         )
+    }
+
+    fun analyzeLosslessLibrary() {
+        if (analysisJob?.isActive == true) return
+        val candidates = _library.value.tracks.filter {
+            it.audioQuality in listOf(com.twelvepts.cathode.model.AudioQuality.LOSSLESS, com.twelvepts.cathode.model.AudioQuality.HI_RES, com.twelvepts.cathode.model.AudioQuality.SUSPECTED_TRANSCODE) && !it.spectralAnalyzed
+        }
+        analysisJob = viewModelScope.launch(Dispatchers.IO) {
+            _library.value = _library.value.copy(analysisRunning = true, analysisCompleted = 0, analysisTotal = candidates.size)
+            candidates.forEachIndexed { index, track ->
+                val updated = repository.analyzeLossless(track)
+                _library.value = _library.value.copy(
+                    tracks = _library.value.tracks.map { if (it.stableKey == updated.stableKey) updated else it },
+                    analysisCompleted = index + 1,
+                )
+            }
+            _library.value = _library.value.copy(analysisRunning = false)
+        }
+    }
+
+    fun cancelLosslessAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        _library.value = _library.value.copy(analysisRunning = false)
     }
 }

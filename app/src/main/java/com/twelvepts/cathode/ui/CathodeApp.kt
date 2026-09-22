@@ -212,6 +212,8 @@ fun CathodeApp(
                             onDeletePlaylist = viewModel::deletePlaylist,
                             onAddToPlaylist = viewModel::addToPlaylist,
                             onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
+                            onAnalyzeLossless = viewModel::analyzeLosslessLibrary,
+                            onCancelAnalysis = viewModel::cancelLosslessAnalysis,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onProfile = { scope.launch { drawerState.open() } },
                             settings = settings,

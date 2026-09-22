@@ -61,6 +61,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -300,6 +301,8 @@ fun LibraryScreen(
     onDeletePlaylist: (Long) -> Unit,
     onAddToPlaylist: PlaylistAdder,
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
+    onAnalyzeLossless: () -> Unit,
+    onCancelAnalysis: () -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onProfile: () -> Unit,
     settings: CathodeSettings,
@@ -339,7 +342,7 @@ fun LibraryScreen(
         when (settings.libraryCategory) {
             LibraryCategory.SONGS, LibraryCategory.FAVORITES -> emptyList()
             LibraryCategory.ALBUMS -> qualitySorted.groupBy { "${it.artist}\u0000${it.album}" }
-                .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, tracks.first().artist, tracks) }
+                .map { (key, tracks) -> LibraryGroup(key, tracks.first().album, "${tracks.first().artist} · ${albumQualityLabel(tracks)}", tracks) }
             LibraryCategory.ARTISTS -> qualitySorted.groupBy(AudioTrack::artist)
                 .map { (key, tracks) -> LibraryGroup(key, key, "${tracks.size} songs", tracks) }
             LibraryCategory.FOLDERS -> qualitySorted.groupBy { it.relativePath ?: "Unknown folder" }
@@ -412,6 +415,25 @@ fun LibraryScreen(
             item { FilterChip(selected = qualityFilter == null, onClick = { qualityFilter = null }, label = { Text("All quality") }) }
             items(AudioQuality.entries) { quality ->
                 FilterChip(selected = qualityFilter == quality, onClick = { qualityFilter = quality }, label = { Text(quality.label) })
+            }
+        }
+        if (detail == null) {
+            if (state.analysisRunning) {
+                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Analyzing lossless integrity ${state.analysisCompleted}/${state.analysisTotal}", Modifier.weight(1f), color = CathodeCyan)
+                        TextButton(onClick = onCancelAnalysis) { Text("Cancel") }
+                    }
+                    LinearProgressIndicator(
+                        progress = { if (state.analysisTotal > 0) state.analysisCompleted.toFloat() / state.analysisTotal else 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = CathodeCyan,
+                    )
+                }
+            } else {
+                TextButton(onClick = onAnalyzeLossless, modifier = Modifier.padding(bottom = 6.dp)) {
+                    Text("Analyze lossless integrity")
+                }
             }
         }
         when {
@@ -560,6 +582,14 @@ fun LibraryScreen(
 private fun Set<String>.toggle(key: String): Set<String> = if (key in this) this - key else this + key
 
 private data class LibraryGroup(val key: String, val title: String, val subtitle: String, val tracks: List<AudioTrack>)
+
+private fun albumQualityLabel(tracks: List<AudioTrack>): String = when {
+    tracks.any { it.audioQuality == AudioQuality.SUSPECTED_TRANSCODE } -> "Suspected transcode"
+    tracks.all { it.audioQuality == AudioQuality.HI_RES } -> "Hi-Res Lossless"
+    tracks.all { it.audioQuality in listOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES) } -> "Lossless"
+    tracks.any { it.audioQuality == AudioQuality.LOSSY } -> "Mixed/Lossy"
+    else -> "Quality unknown"
+}
 
 @Composable
 private fun LibraryGroupRow(group: LibraryGroup, onClick: () -> Unit) {
@@ -798,6 +828,8 @@ private fun AudioDiagnosticsDialog(track: AudioTrack, onDismiss: () -> Unit) {
                 DiagnosticRow("FLAC seek table", value.seekTable)
                 track.sampleRateHz?.let { DiagnosticRow("Verified sample rate", "${it / 1000f} kHz") }
                 track.bitDepth?.let { DiagnosticRow("Verified bit depth", "$it-bit") }
+                DiagnosticRow("Spectral scan", if (track.spectralAnalyzed) "Completed" else "Not analyzed")
+                track.estimatedCutoffHz?.let { DiagnosticRow("Estimated bandwidth", "${it / 1000f} kHz") }
                 value.warning?.let { Text(it, color = CathodeError, modifier = Modifier.padding(top = 8.dp)) }
                 Text("A valid duration does not guarantee a valid FLAC seek table. If this track still cannot scrub, its container likely needs a lossless remux.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
             }

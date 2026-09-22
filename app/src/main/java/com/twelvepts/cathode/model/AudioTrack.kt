@@ -29,6 +29,8 @@ data class AudioTrack(
     val sampleRateHz: Int? = null,
     val bitDepth: Int? = null,
     val audioQuality: AudioQuality = AudioQuality.UNKNOWN,
+    val spectralAnalyzed: Boolean = false,
+    val estimatedCutoffHz: Int? = null,
 ) {
     val stableKey: String
         get() = stableTrackKey(relativePath, displayName, fileSize)

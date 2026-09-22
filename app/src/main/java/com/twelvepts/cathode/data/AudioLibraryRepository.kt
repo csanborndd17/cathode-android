@@ -80,6 +80,9 @@ class AudioLibraryRepository(private val context: Context) {
                     mime.contains("mpeg") || mime.contains("mp3") || mime.contains("aac") || mime.contains("opus") || mime.contains("vorbis") -> AudioQuality.LOSSY
                     else -> AudioQuality.UNKNOWN
                 }
+                val spectralAnalyzed = metadata.getBoolean("$key.spectral.analyzed", false)
+                val spectralSuspected = metadata.getBoolean("$key.spectral.suspected", false)
+                val spectralCutoff = metadata.getInt("$key.spectral.cutoff", -1).takeIf { it > 0 }
                 result += AudioTrack(
                     id = id,
                     uri = uri,
@@ -102,7 +105,9 @@ class AudioLibraryRepository(private val context: Context) {
                     hasFlacSeekTable = flac?.hasSeekTable,
                     sampleRateHz = flac?.sampleRateHz,
                     bitDepth = flac?.bitDepth,
-                    audioQuality = quality,
+                    audioQuality = if (spectralSuspected && quality in listOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES)) AudioQuality.SUSPECTED_TRANSCODE else quality,
+                    spectralAnalyzed = spectralAnalyzed,
+                    estimatedCutoffHz = spectralCutoff,
                 )
                 }
             }
@@ -155,6 +160,22 @@ class AudioLibraryRepository(private val context: Context) {
                 remove("${track.id}.$field")
             }
         }.apply()
+    }
+
+    fun analyzeLossless(track: AudioTrack): AudioTrack {
+        if (track.audioQuality !in listOf(AudioQuality.LOSSLESS, AudioQuality.HI_RES, AudioQuality.SUSPECTED_TRANSCODE)) return track
+        val result = LosslessAnalyzer.analyze(context, track.uri) ?: return track
+        metadata.edit()
+            .putBoolean("${track.stableKey}.spectral.analyzed", true)
+            .putBoolean("${track.stableKey}.spectral.suspected", result.suspectedTranscode)
+            .apply { result.estimatedCutoffHz?.let { putInt("${track.stableKey}.spectral.cutoff", it) } }
+            .apply()
+        val codecQuality = if ((track.sampleRateHz ?: 0) > 48_000 || (track.bitDepth ?: 0) > 16) AudioQuality.HI_RES else AudioQuality.LOSSLESS
+        return track.copy(
+            audioQuality = if (result.suspectedTranscode) AudioQuality.SUSPECTED_TRANSCODE else codecQuality,
+            spectralAnalyzed = true,
+            estimatedCutoffHz = result.estimatedCutoffHz,
+        )
     }
 
     private fun String?.orUnknown(fallback: String): String =
