@@ -17,8 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.CathodeDiagnostics
+import com.twelvepts.cathode.data.SpotifyPlaylistResolver
 import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -35,9 +37,15 @@ fun SettingsScreen(
 ) {
     BackHandler(onBack = onClose)
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val spotify = remember { SpotifyPlaylistResolver(context.applicationContext) }
     var advanced by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var diagnosticEntries by remember { mutableStateOf(CathodeDiagnostics.entries(context)) }
+    var spotifyClientId by remember { mutableStateOf(spotify.clientId) }
+    var spotifyConnected by remember { mutableStateOf(spotify.isConnected) }
+    var spotifyConnecting by remember { mutableStateOf(false) }
+    var spotifyMessage by remember { mutableStateOf<String?>(null) }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
     var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
     var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
@@ -136,6 +144,47 @@ fun SettingsScreen(
                         steps = 10,
                     )
                 }
+            }
+            item {
+                SettingSection("Spotify playlist import")
+                Text(
+                    "Cathode uses Spotify's official browser sign-in to read track and artist names. Spotify audio is never downloaded.",
+                    color = CathodeMuted,
+                )
+                OutlinedTextField(
+                    value = spotifyClientId,
+                    onValueChange = { spotifyClientId = it.trim() },
+                    label = { Text("Spotify Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Register http://127.0.0.1/callback as the redirect URI in your Spotify developer app. Cathode supplies the temporary port automatically.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        enabled = spotifyClientId.isNotBlank() && !spotifyConnecting,
+                        onClick = {
+                            spotify.clientId = spotifyClientId
+                            spotifyConnecting = true
+                            spotifyMessage = "Waiting for Spotify authorization…"
+                            scope.launch {
+                                spotify.connect().fold(
+                                    onSuccess = {
+                                        spotifyConnected = true
+                                        spotifyMessage = "Spotify connected."
+                                    },
+                                    onFailure = { spotifyMessage = it.message ?: "Spotify connection failed." },
+                                )
+                                spotifyConnecting = false
+                            }
+                        },
+                    ) { Text(if (spotifyConnected) "Reconnect" else "Connect Spotify") }
+                    if (spotifyConnected) TextButton(onClick = {
+                        spotify.disconnect()
+                        spotifyConnected = false
+                        spotifyMessage = "Spotify disconnected."
+                    }) { Text("Disconnect") }
+                }
+                spotifyMessage?.let { Text(it, color = if (spotifyConnected) CathodeCyan else CathodeMuted) }
             }
             item {
                 SettingSection("Audio integrity")

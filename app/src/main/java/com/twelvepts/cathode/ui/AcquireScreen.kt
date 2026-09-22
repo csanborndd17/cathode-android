@@ -50,7 +50,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.twelvepts.cathode.BuildConfig
+import com.twelvepts.cathode.data.SpotifyPlaylistResolver
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private data class DownloadSignal(
     val id: Long,
@@ -114,6 +116,8 @@ private val discoverSources = listOf(
 @Composable
 fun AcquireScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val spotify = remember { SpotifyPlaylistResolver(context.applicationContext) }
     val connectivity = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
     var online by remember { mutableStateOf(connectivity.isOnline()) }
     var selectedSource by remember { mutableStateOf<DiscoverSource?>(null) }
@@ -126,6 +130,7 @@ fun AcquireScreen() {
     var importText by remember { mutableStateOf("") }
     var importedTracks by remember { mutableStateOf<List<ImportedTrack>>(emptyList()) }
     var playlistLinkNotice by remember { mutableStateOf<String?>(null) }
+    var resolvingPlaylist by remember { mutableStateOf(false) }
     var importSource by remember { mutableStateOf(discoverSources.first()) }
     var completedImports by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun closeSource() {
@@ -312,19 +317,35 @@ fun AcquireScreen() {
                 )
                 Button(onClick = {
                     val link = importText.trim().takeIf { it.startsWith("https://") }
-                    if (link != null) {
+                    if (link != null && "spotify.com/" in link) {
                         importedTracks = emptyList()
-                        playlistLinkNotice = when {
-                            "spotify.com/" in link -> "Spotify requires an authorized account connection. Cathode will not scrape the Spotify webpage. Add a Spotify developer Client ID in Settings after the account connection ships."
-                            "youtube.com/" in link || "youtu.be/" in link -> "YouTube playlist lookup requires an authorized YouTube Data API connection. Cathode will not scrape the webpage."
-                            else -> "This playlist provider is not connected. Export the playlist as Artist - Title lines for now."
+                        if (!spotify.isConnected) {
+                            playlistLinkNotice = "Connect Spotify in Settings → Advanced → Spotify playlist import, then try again."
+                        } else {
+                            resolvingPlaylist = true
+                            playlistLinkNotice = "Reading playlist from Spotify…"
+                            scope.launch {
+                                spotify.resolve(link).fold(
+                                    onSuccess = { tracks ->
+                                        importedTracks = tracks.map { ImportedTrack(it.artist, it.title) }
+                                        playlistLinkNotice = if (tracks.isEmpty()) "Spotify returned no readable tracks." else "Loaded ${tracks.size} tracks from Spotify."
+                                    },
+                                    onFailure = { playlistLinkNotice = it.message ?: "Spotify playlist lookup failed." },
+                                )
+                                resolvingPlaylist = false
+                            }
                         }
+                    } else if (link != null) {
+                        importedTracks = emptyList()
+                        playlistLinkNotice = if ("youtube.com/" in link || "youtu.be/" in link) {
+                            "YouTube playlist lookup requires an authorized YouTube Data API connection."
+                        } else "This playlist provider is not connected. Export it as Artist - Title lines for now."
                     } else {
                         playlistLinkNotice = null
                         importedTracks = parsePlaylistText(importText)
                     }
-                }, enabled = importText.isNotBlank()) {
-                    Text("Parse tracks")
+                }, enabled = importText.isNotBlank() && !resolvingPlaylist) {
+                    Text(if (resolvingPlaylist) "Reading Spotify…" else "Parse tracks")
                 }
                 playlistLinkNotice?.let {
                     Surface(color = CathodePanel, shape = MaterialTheme.shapes.medium) {
