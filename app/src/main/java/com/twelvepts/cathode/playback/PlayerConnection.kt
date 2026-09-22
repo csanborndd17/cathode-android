@@ -99,6 +99,16 @@ class PlayerConnection(context: Context) : Player.Listener {
     }
 
     fun addToQueue(track: AudioTrack) { controller?.addMediaItem(track.toMediaItem()) }
+    fun updateTrackMetadata(track: AudioTrack) {
+        controller?.let { player ->
+            for (index in 0 until player.mediaItemCount) {
+                if (player.getMediaItemAt(index).mediaId == track.stableKey) {
+                    player.replaceMediaItem(index, track.toMediaItem())
+                }
+            }
+            publishState()
+        }
+    }
     fun playNext(track: AudioTrack) {
         controller?.let { it.addMediaItem((it.currentMediaItemIndex + 1).coerceAtMost(it.mediaItemCount), track.toMediaItem()) }
     }

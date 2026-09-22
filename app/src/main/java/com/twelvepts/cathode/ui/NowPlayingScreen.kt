@@ -16,6 +16,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -429,8 +430,11 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
     }
     suspend fun centerActiveLine() {
         if (activeIndex < 0) return
-        listState.scrollToItem(activeIndex)
-        val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex } ?: return
+        var info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+        if (info == null) {
+            listState.scrollToItem(activeIndex)
+            info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex } ?: return
+        }
         val viewportCenter = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
         listState.animateScrollBy((info.offset + info.size / 2 - viewportCenter).toFloat())
     }
@@ -468,16 +472,20 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
                 ) {
                     itemsIndexed(lines) { index, line ->
                         val active = index == activeIndex
-                        val scale by animateFloatAsState(if (active) 1f else .88f, spring(dampingRatio = .82f), label = "lyric-scale")
+                        val scale by animateFloatAsState(
+                            if (active) 1f else .82f,
+                            tween(420, easing = FastOutSlowInEasing),
+                            label = "lyric-scale",
+                        )
                         val lineColor by animateColorAsState(
                             if (active) CathodeCyan else CathodeText.copy(alpha = if (line.timeMs == null) .82f else .48f),
-                            tween(280),
+                            tween(420, easing = FastOutSlowInEasing),
                             label = "lyric-color",
                         )
                         Text(
                             line.text,
                             color = lineColor,
-                            style = if (active) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.headlineLarge,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }

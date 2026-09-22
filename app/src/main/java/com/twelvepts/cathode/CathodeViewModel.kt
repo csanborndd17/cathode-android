@@ -170,14 +170,15 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         tags: String,
         customArtworkUri: String?,
         lyrics: String,
-    ) {
+    ): AudioTrack {
         val updated = repository.updateMetadata(track, title, artist, album, tags, customArtworkUri, lyrics)
         _library.value = _library.value.copy(
             tracks = _library.value.tracks.map { if (it.id == updated.id) updated else it },
         )
+        return updated
     }
 
-    fun updateMetadataBatch(tracks: List<AudioTrack>, artist: String, album: String, tags: String) {
+    fun updateMetadataBatch(tracks: List<AudioTrack>, artist: String, album: String, tags: String): List<AudioTrack> {
         val updates = tracks.associate { track ->
             track.id to repository.updateMetadata(
                 track = track,
@@ -190,6 +191,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         _library.value = _library.value.copy(tracks = _library.value.tracks.map { updates[it.id] ?: it })
+        return updates.values.toList()
     }
 
     fun analyzeLosslessLibrary() = analyzeLosslessLibrary(force = false)

@@ -76,6 +76,9 @@ fun CathodeApp(
     fun playTrack(track: com.twelvepts.cathode.model.AudioTrack) {
         player.play(library.tracks, track)
     }
+    val editMetadata: MetadataEditor = { track, title, artist, album, tags, artwork, lyrics ->
+        player.updateTrackMetadata(viewModel.updateMetadata(track, title, artist, album, tags, artwork, lyrics))
+    }
     fun selectTab(next: CathodeTab, keepLibraryView: Boolean = false) {
         if (!keepLibraryView && (tab == CathodeTab.Library || next == CathodeTab.Library)) {
             settingsStore.update {
@@ -184,7 +187,7 @@ fun CathodeApp(
                             state = library,
                             onRescan = viewModel::rescan,
                             onPlay = ::playTrack,
-                            onEdit = viewModel::updateMetadata,
+                            onEdit = editMetadata,
                             onReset = viewModel::resetMetadata,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onAddToPlaylist = viewModel::addToPlaylist,
@@ -204,7 +207,7 @@ fun CathodeApp(
                             requestPermission = requestPermission,
                             onRescan = viewModel::rescan,
                             onPlay = ::playTrack,
-                            onEdit = viewModel::updateMetadata,
+                            onEdit = editMetadata,
                             onReset = viewModel::resetMetadata,
                             onToggleFavorite = viewModel::toggleFavorite,
                             onCreatePlaylist = viewModel::createPlaylist,
@@ -215,7 +218,9 @@ fun CathodeApp(
                             onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onMovePlaylistTrack = viewModel::movePlaylistTrack,
-                            onBatchEdit = viewModel::updateMetadataBatch,
+                            onBatchEdit = { tracks, artist, album, tags ->
+                                viewModel.updateMetadataBatch(tracks, artist, album, tags).forEach(player::updateTrackMetadata)
+                            },
                             onCreateSmartPlaylist = viewModel::createSmartPlaylist,
                             onUpdateSmartPlaylist = viewModel::updateSmartPlaylist,
                             onDeleteSmartPlaylist = viewModel::deleteSmartPlaylist,
