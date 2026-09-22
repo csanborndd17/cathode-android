@@ -100,6 +100,7 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.LibraryState
 import com.twelvepts.cathode.data.PlaylistSummary
 import com.twelvepts.cathode.data.SmartPlaylist
+import com.twelvepts.cathode.data.LyricsRepository
 import com.twelvepts.cathode.model.AudioTrack
 import java.util.Calendar
 import java.io.File
@@ -147,7 +148,7 @@ fun HomeScreen(
     fun visible(name: String) = name !in settings.hiddenHomeSections
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(164.dp),
+        columns = GridCells.Fixed(2),
         modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1006,6 +1007,8 @@ private fun MetadataDialog(
     var tags by remember(track.id) { mutableStateOf(track.tags) }
     var artworkUri by remember(track.id) { mutableStateOf(track.customArtworkUri) }
     var lyrics by remember(track.id) { mutableStateOf(track.lyrics) }
+    var lyricsSearching by remember(track.id) { mutableStateOf(false) }
+    var lyricsMessage by remember(track.id) { mutableStateOf<String?>(null) }
     var cropSource by remember { mutableStateOf<Uri?>(null) }
     var cropZoom by remember { mutableStateOf(1f) }
     var cropX by remember { mutableStateOf(0f) }
@@ -1064,9 +1067,29 @@ private fun MetadataDialog(
                     supportingText = { Text("Plain text or timestamped LRC lines are stored locally in Cathode.") },
                     minLines = 5,
                 )
-                TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) {
-                    Text("Import .lrc file")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) {
+                        Text("Import .lrc")
+                    }
+                    TextButton(
+                        enabled = !lyricsSearching,
+                        onClick = {
+                            lyricsSearching = true
+                            lyricsMessage = null
+                            scope.launch {
+                                LyricsRepository.find(track.copy(title = title, artist = artist, album = album)).fold(
+                                    onSuccess = {
+                                        lyrics = it.lyrics
+                                        lyricsMessage = if (it.synchronized) "Synchronized lyrics found. Save to keep them." else "Plain lyrics found. Save to keep them."
+                                    },
+                                    onFailure = { lyricsMessage = it.message ?: "Lyrics lookup failed." },
+                                )
+                                lyricsSearching = false
+                            }
+                        },
+                    ) { Text(if (lyricsSearching) "Searching…" else "Find lyrics") }
                 }
+                lyricsMessage?.let { Text(it, color = if (it.contains("found")) CathodeCyan else CathodeMuted, style = MaterialTheme.typography.labelMedium) }
                 Text(
                     buildString {
                         append(track.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO")

@@ -5,6 +5,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
@@ -13,6 +16,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -73,9 +79,11 @@ fun SettingsScreen(
         }
     }
     val initialAccent = settings.customAccentArgb ?: 0xFF00E5FF.toInt()
-    var accentRed by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 16) and 0xff) / 255f) }
-    var accentGreen by remember(settings.customAccentArgb) { mutableFloatStateOf(((initialAccent shr 8) and 0xff) / 255f) }
-    var accentBlue by remember(settings.customAccentArgb) { mutableFloatStateOf((initialAccent and 0xff) / 255f) }
+    val initialHsv = remember(initialAccent) { FloatArray(3).also { android.graphics.Color.colorToHSV(initialAccent, it) } }
+    var accentHue by remember(settings.customAccentArgb) { mutableFloatStateOf(initialHsv[0] / 360f) }
+    var accentTone by remember(settings.customAccentArgb) {
+        mutableFloatStateOf(if (initialHsv[2] >= .999f) initialHsv[1] / 2f else .5f + (1f - initialHsv[2]) / 2f)
+    }
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
         ArtworkBackdrop(artworkUri, settings.animations)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .22f), CathodeBlack.copy(alpha = .72f)))))
@@ -118,30 +126,18 @@ fun SettingsScreen(
             item { SettingToggle("Rounded surfaces","Use softer panels and controls.",settings.rounded){v->store.update{it.copy(rounded=v)}} }
             item { SettingToggle("Interface motion","Enable transitions and the phosphor background.",settings.animations){v->store.update{it.copy(animations=v)}} }
             item { SettingToggle("Startup reveal","Show the Cathode logo on launch.",settings.startupAnimation){v->store.update{it.copy(startupAnimation=v)}} }
-            item {
-                SettingSection("Layout resolution")
-                Text("Auto uses Android's detected display density. Manual fits change Cathode's interface scale, not the phone panel's physical resolution.", color = CathodeMuted)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Compact" to .85f, "Auto" to 1f, "Large" to 1.15f).forEach { (label, scale) ->
-                        FilterChip(selected = kotlin.math.abs(settings.layoutScale - scale) < .01f,
-                            onClick = { store.update { it.copy(layoutScale = scale) } }, label = { Text(label) })
-                    }
-                }
-                TextButton(onClick = { store.update { it.copy(layoutScale = 1f) } }) { Text("Reset to detected default") }
-            }
         } else {
             item {
                 SettingSection("Custom accent")
-                val preview = Color(accentRed, accentGreen, accentBlue, 1f)
+                val preview = accentFromPicker(accentHue, accentTone)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     Box(Modifier.size(76.dp).background(preview, CircleShape))
                 }
-                ColorChannelSlider("Red", accentRed) { accentRed = it }
-                ColorChannelSlider("Green", accentGreen) { accentGreen = it }
-                ColorChannelSlider("Blue", accentBlue) { accentBlue = it }
+                Text("Tap or drag across the full color field", color = CathodeMuted)
+                AccentColorField(accentHue, accentTone) { hue, tone -> accentHue = hue; accentTone = tone }
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Button(onClick={
-                        val color = android.graphics.Color.rgb((accentRed*255).toInt(),(accentGreen*255).toInt(),(accentBlue*255).toInt())
+                        val color = preview.copy(alpha = 1f).toArgb()
                         store.update{it.copy(customAccentArgb=color)}
                     }){Text("Apply color")}
                     TextButton(onClick={store.update{it.copy(customAccentArgb=null)}}){Text("Use preset")}
@@ -336,6 +332,31 @@ fun SettingsScreen(
         },
         confirmButton = { TextButton(onClick = { showDiagnostics = false }) { Text("Done") } },
     )
+}
+
+private fun accentFromPicker(hue: Float, tone: Float): Color {
+    val saturation = if (tone <= .5f) tone * 2f else 1f
+    val value = if (tone <= .5f) 1f else (2f - tone * 2f).coerceAtLeast(.06f)
+    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hue * 360f, saturation, value)))
+}
+
+@Composable
+private fun AccentColorField(hue: Float, tone: Float, onChange: (Float, Float) -> Unit) {
+    fun update(position: Offset, width: Float, height: Float) = onChange(
+        (position.x / width).coerceIn(0f, 1f),
+        (position.y / height).coerceIn(0f, 1f),
+    )
+    Canvas(
+        Modifier.fillMaxWidth().height(210.dp).clip(MaterialTheme.shapes.large)
+            .pointerInput(Unit) { detectTapGestures { update(it, size.width.toFloat(), size.height.toFloat()) } }
+            .pointerInput(Unit) { detectDragGestures { change, _ -> update(change.position, size.width.toFloat(), size.height.toFloat()) } },
+    ) {
+        drawRect(Brush.horizontalGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)))
+        drawRect(Brush.verticalGradient(0f to Color.White, .5f to Color.Transparent, .5001f to Color.Transparent, 1f to Color.Black))
+        drawCircle(Color.Black.copy(alpha = .65f), 13.dp.toPx(), Offset(size.width * hue, size.height * tone))
+        drawCircle(Color.White, 9.dp.toPx(), Offset(size.width * hue, size.height * tone))
+        drawCircle(accentFromPicker(hue, tone), 6.dp.toPx(), Offset(size.width * hue, size.height * tone))
+    }
 }
 @Composable private fun SettingSection(title:String){Text(title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)}
 @Composable private fun ColorChannelSlider(label:String,value:Float,onValue:(Float)->Unit){

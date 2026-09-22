@@ -13,6 +13,7 @@ Cathode is a local-first Android music player by 12Pts with an artwork-reactive 
 - Notification, lock-screen, Bluetooth, headset, and audio-focus integration
 - Audio equalizer where the active Android route exposes an effects session
 - Persistent mini-player, artwork-derived backgrounds, profile customization, and Transmission Log
+- Anonymous synchronized-lyrics lookup, local LRC import/editing, and artwork-backed karaoke display
 - HTTPS-only Discover hub with Android DownloadManager handoff and offline detection
 - Authorized Spotify and public YouTube playlist import with lazy large-playlist rendering and guided source-search queues
 - Android 8.0+ (`minSdk 26`), targeting API 36

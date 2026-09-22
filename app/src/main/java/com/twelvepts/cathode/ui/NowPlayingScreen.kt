@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -309,7 +310,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
             }
         }
     }
-    if (showLyrics) LyricsScreen(state) { showLyrics = false }
+    if (showLyrics) LyricsScreen(state, player) { showLyrics = false }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
     if (showSleepTimer) AlertDialog(
@@ -389,10 +390,23 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
 private data class LyricLine(val timeMs: Long?, val text: String)
 
 @Composable
-private fun LyricsScreen(state: PlaybackState, onClose: () -> Unit) {
+private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose: () -> Unit) {
     val lines = remember(state.lyrics) { parseLyrics(state.lyrics) }
     val activeIndex = lines.indexOfLast { it.timeMs != null && it.timeMs <= state.positionMs }
+    val listState = rememberLazyListState()
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0) listState.animateScrollToItem((activeIndex - 2).coerceAtLeast(0))
+    }
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
+        Box(Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = state.artworkUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().blur(24.dp).alpha(.66f),
+                contentScale = ContentScale.Crop,
+            )
+            SignalDust(true)
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to CathodeBlack.copy(alpha = .22f), 1f to CathodeBlack.copy(alpha = .78f))))
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Close lyrics", tint = CathodeCyan) }
@@ -405,16 +419,18 @@ private fun LyricsScreen(state: PlaybackState, onClose: () -> Unit) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No local lyrics yet. Edit this track's metadata from Library to add plain text or LRC lyrics.", color = CathodeMuted, textAlign = TextAlign.Center)
                 }
-            } else LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 itemsIndexed(lines) { index, line ->
                     Text(
                         line.text,
                         color = if (index == activeIndex) CathodeCyan else CathodeText.copy(alpha = if (line.timeMs == null) .92f else .58f),
                         style = if (index == activeIndex) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
                         fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.fillMaxWidth().clickable(enabled = line.timeMs != null) { line.timeMs?.let(player::seekTo) },
                     )
                 }
             }
+        }
         }
     }
 }

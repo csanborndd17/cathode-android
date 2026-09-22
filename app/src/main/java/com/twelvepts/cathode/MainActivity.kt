@@ -28,9 +28,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -182,18 +179,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by settingsStore.state.collectAsStateWithLifecycle()
             CathodeTheme(settings) {
-                val detectedDensity = LocalDensity.current
-                CompositionLocalProvider(
-                    LocalDensity provides Density(detectedDensity.density * settings.layoutScale, detectedDensity.fontScale),
-                ) {
-                    CathodeApp(
-                        viewModel = viewModel,
-                        player = playerConnection,
-                        requestPermission = { audioPermissionLauncher.launch(permission) },
-                        settings = settings,
-                        settingsStore = settingsStore,
-                    )
-                }
+                CathodeApp(
+                    viewModel = viewModel,
+                    player = playerConnection,
+                    requestPermission = { audioPermissionLauncher.launch(permission) },
+                    settings = settings,
+                    settingsStore = settingsStore,
+                )
             }
         }
     }

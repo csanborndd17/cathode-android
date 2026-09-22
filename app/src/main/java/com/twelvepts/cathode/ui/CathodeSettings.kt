@@ -44,7 +44,6 @@ data class CathodeSettings(
     val profileName: String = "Listener",
     val profileImageUri: String? = null,
     val transmissionLogSeenYear: Int = 0,
-    val layoutScale: Float = 1f,
 ) {
     companion object {
         val defaultTabs = listOf("Home", "Library", "Discover")
@@ -84,7 +83,6 @@ class CathodeSettingsStore(context: Context) {
             .putString("profile_name", next.profileName)
             .apply { if (next.profileImageUri == null) remove("profile_image") else putString("profile_image", next.profileImageUri) }
             .putInt("transmission_log_seen_year", next.transmissionLogSeenYear)
-            .putFloat("layout_scale", next.layoutScale)
             .apply()
     }
 
@@ -151,7 +149,6 @@ class CathodeSettingsStore(context: Context) {
             profileName = preferences.getString("profile_name", "Listener") ?: "Listener",
             profileImageUri = preferences.getString("profile_image", null),
             transmissionLogSeenYear = preferences.getInt("transmission_log_seen_year", 0),
-            layoutScale = preferences.getFloat("layout_scale", 1f).coerceIn(.8f, 1.2f),
         )
     }
 }
