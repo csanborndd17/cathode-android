@@ -80,6 +80,7 @@ class PlayerConnection(context: Context) : Player.Listener {
     private val audioPreferences = appContext.getSharedPreferences("audio_lab", Context.MODE_PRIVATE)
     private val playbackPreferences = appContext.getSharedPreferences("playback_session", Context.MODE_PRIVATE)
     private var playbackError: String? = null
+    private val metadataOverrides = mutableMapOf<String, AudioTrack>()
 
     init {
         val token = SessionToken(appContext, ComponentName(appContext, CathodePlaybackService::class.java))
@@ -105,6 +106,7 @@ class PlayerConnection(context: Context) : Player.Listener {
 
     fun addToQueue(track: AudioTrack) { controller?.addMediaItem(track.toMediaItem()) }
     fun updateTrackMetadata(track: AudioTrack) {
+        metadataOverrides[track.stableKey] = track
         controller?.let { player ->
             for (index in 0 until player.mediaItemCount) {
                 if (player.getMediaItemAt(index).mediaId == track.stableKey) {
@@ -303,21 +305,24 @@ class PlayerConnection(context: Context) : Player.Listener {
             val metadata = p.mediaMetadata
             val queue = (0 until p.mediaItemCount).map { index ->
                 val item = p.getMediaItemAt(index)
+                val override = metadataOverrides[item.mediaId]
                 QueueEntry(
                     mediaId = item.mediaId,
-                    title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown title" },
-                    artist = item.mediaMetadata.artist?.toString().orEmpty().ifBlank { "Unknown artist" },
-                    artworkUri = item.mediaMetadata.artworkUri,
-                    mimeType = item.localConfiguration?.mimeType,
-                    sourceUri = item.localConfiguration?.uri,
+                    title = override?.title ?: item.mediaMetadata.title?.toString().orEmpty().ifBlank { "Unknown title" },
+                    artist = override?.artist ?: item.mediaMetadata.artist?.toString().orEmpty().ifBlank { "Unknown artist" },
+                    artworkUri = override?.artworkUri ?: item.mediaMetadata.artworkUri,
+                    mimeType = override?.mimeType ?: item.localConfiguration?.mimeType,
+                    sourceUri = override?.uri ?: item.localConfiguration?.uri,
                 )
             }
+            val currentId = p.currentMediaItem?.mediaId
+            val currentOverride = currentId?.let(metadataOverrides::get)
             _state.value = PlaybackState(
                 connected = true,
                 isPlaying = p.isPlaying,
-                title = metadata.title?.toString().orEmpty(),
-                artist = metadata.artist?.toString().orEmpty(),
-                artworkUri = metadata.artworkUri,
+                title = currentOverride?.title ?: metadata.title?.toString().orEmpty(),
+                artist = currentOverride?.artist ?: metadata.artist?.toString().orEmpty(),
+                artworkUri = currentOverride?.artworkUri ?: metadata.artworkUri,
                 positionMs = p.currentPosition.coerceAtLeast(0),
                 durationMs = p.duration.takeIf { it > 0 } ?: 0,
                 isSeekable = p.isCurrentMediaItemSeekable,
@@ -330,12 +335,12 @@ class PlayerConnection(context: Context) : Player.Listener {
                 sleepTimerPresetsSeconds = playbackPreferences.getStringSet("sleep_presets", emptySet()).orEmpty()
                     .mapNotNull(String::toLongOrNull).filter { it > 0 }.sorted(),
                 playbackError = playbackError,
-                lyrics = metadata.extras?.getString("cathode_lyrics").orEmpty(),
-                replayGainDb = metadata.extras?.takeIf { it.containsKey("cathode_replay_gain") }?.getFloat("cathode_replay_gain"),
+                lyrics = currentOverride?.lyrics ?: metadata.extras?.getString("cathode_lyrics").orEmpty(),
+                replayGainDb = currentOverride?.replayGainDb ?: metadata.extras?.takeIf { it.containsKey("cathode_replay_gain") }?.getFloat("cathode_replay_gain"),
                 replayGainEnabled = playbackPreferences.getBoolean("replay_gain_enabled", false),
                 transitionFadeEnabled = playbackPreferences.getBoolean("transition_fade_enabled", false),
                 transitionFadeSeconds = playbackPreferences.getInt("transition_fade_seconds", 3).coerceIn(1, 12),
-                audioQuality = runCatching {
+                audioQuality = currentOverride?.audioQuality ?: runCatching {
                     AudioQuality.valueOf(metadata.extras?.getString("cathode_audio_quality").orEmpty())
                 }.getOrDefault(AudioQuality.UNKNOWN),
             )

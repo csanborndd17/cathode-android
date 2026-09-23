@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -87,6 +88,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +112,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.Shadow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,14 +122,26 @@ import coil.compose.AsyncImage
 import com.twelvepts.cathode.playback.AudioLabState
 import com.twelvepts.cathode.playback.PlaybackState
 import com.twelvepts.cathode.playback.PlayerConnection
+import com.twelvepts.cathode.model.AudioTrack
+import com.twelvepts.cathode.data.LyricsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sin
 import java.util.Calendar
 
 @Composable
-fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: CathodeSettings, onDismiss: () -> Unit) {
+fun NowPlayingScreen(
+    state: PlaybackState,
+    player: PlayerConnection,
+    settings: CathodeSettings,
+    currentTrack: AudioTrack?,
+    libraryTracks: List<AudioTrack>,
+    onSaveLyrics: (AudioTrack, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val animations = settings.animations
     val view = LocalView.current
     var showQueue by remember { mutableStateOf(false) }
@@ -135,6 +150,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: C
     var showLyrics by remember { mutableStateOf(false) }
     var sleepAmount by remember { mutableStateOf("") }
     var sleepUnit by remember { mutableStateOf("minutes") }
+    val nowPlayingScroll = rememberScrollState()
     fun haptic() {
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
@@ -169,7 +185,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: C
                 Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(nowPlayingScroll)
                     .padding(horizontal = 24.dp, vertical = 8.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -322,14 +338,12 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: C
                         )
                     }
                 }
-                AudioDetailsCard(state)
-                Text(
-                    "LOCAL PLAYBACK",
-                    color = CathodeDim,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-                    textAlign = TextAlign.Center,
-                )
+                AnimatedVisibility(
+                    visible = nowPlayingScroll.value > 60,
+                    enter = fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 2 },
+                    exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { it / 2 },
+                ) { AudioDetailsCard(state) }
+                Spacer(Modifier.height(92.dp))
             }
         }
     }
@@ -338,7 +352,7 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: C
         enter = fadeIn(tween(if (animations) 260 else 0)) + slideInVertically(tween(if (animations) 320 else 0)) { it / 10 },
         exit = fadeOut(tween(if (animations) 220 else 0)) + slideOutVertically(tween(if (animations) 260 else 0)) { it / 12 },
         label = "lyrics-overlay",
-    ) { LyricsScreen(state, player) { showLyrics = false } }
+    ) { LyricsScreen(state, player, currentTrack, libraryTracks, onSaveLyrics) { showLyrics = false } }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
     if (showSleepTimer) AlertDialog(
@@ -418,10 +432,26 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: C
 private data class LyricLine(val timeMs: Long?, val text: String)
 
 @Composable
-private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose: () -> Unit) {
+private fun LyricsScreen(
+    state: PlaybackState,
+    player: PlayerConnection,
+    currentTrack: AudioTrack?,
+    libraryTracks: List<AudioTrack>,
+    onSaveLyrics: (AudioTrack, String) -> Unit,
+    onClose: () -> Unit,
+) {
     val lines = remember(state.lyrics) { parseLyrics(state.lyrics) }
     val activeIndex = lines.indexOfLast { it.timeMs != null && it.timeMs <= state.positionMs }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var lookupRunning by remember(currentTrack?.stableKey) { mutableStateOf(false) }
+    var lookupMessage by remember(currentTrack?.stableKey) { mutableStateOf<String?>(null) }
+    var showBatch by remember { mutableStateOf(false) }
+    var batchRunning by remember { mutableStateOf(false) }
+    var batchProgress by remember { mutableStateOf(0) }
+    var batchTotal by remember { mutableStateOf(0) }
+    var batchFailures by remember { mutableStateOf<List<String>>(emptyList()) }
+    var batchFinished by remember { mutableStateOf(false) }
     val trackKey = state.queue.getOrNull(state.mediaItemIndex)?.mediaId
     var following by remember(trackKey) { mutableStateOf(true) }
     val manualScrollConnection = remember {
@@ -463,6 +493,28 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
                     Text(state.title, color = CathodeMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                TextButton(
+                    enabled = currentTrack != null && !lookupRunning,
+                    onClick = {
+                        val track = currentTrack ?: return@TextButton
+                        lookupRunning = true
+                        lookupMessage = null
+                        scope.launch {
+                            LyricsRepository.find(track).fold(
+                                onSuccess = {
+                                    onSaveLyrics(track, it.lyrics)
+                                    lookupMessage = if (it.synchronized) "Synchronized lyrics saved." else "Plain lyrics saved."
+                                },
+                                onFailure = { lookupMessage = it.message ?: "Lyrics were not found." },
+                            )
+                            lookupRunning = false
+                        }
+                    },
+                ) { Text(if (lookupRunning) "Searching…" else if (state.lyrics.isBlank()) "Find and save" else "Find replacement") }
+                TextButton(onClick = { showBatch = true }) { Text("Find missing lyrics") }
+            }
+            lookupMessage?.let { Text(it, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
             if (lines.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No local lyrics yet. Edit this track's metadata from Library to add plain text or LRC lyrics.", color = CathodeMuted, textAlign = TextAlign.Center)
@@ -489,7 +541,7 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
                         Text(
                             line.text,
                             color = lineColor,
-                            style = MaterialTheme.typography.headlineLarge,
+                            style = MaterialTheme.typography.headlineLarge.copy(shadow = Shadow(CathodeBlack, Offset(0f, 3f), 9f)),
                             fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }
@@ -511,6 +563,56 @@ private fun LyricsScreen(state: PlaybackState, player: PlayerConnection, onClose
         }
         }
     }
+    if (showBatch) AlertDialog(
+        onDismissRequest = { if (!batchRunning) showBatch = false },
+        title = { Text("Find missing lyrics") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    batchRunning -> {
+                        Text("Searching $batchProgress of $batchTotal", color = CathodeCyan)
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { if (batchTotal == 0) 0f else batchProgress.toFloat() / batchTotal },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    batchFinished && batchTotal == 0 -> Text("Every track already has saved lyrics.", color = CathodeMuted)
+                    batchFinished -> Text("Checked $batchProgress tracks. ${batchFailures.size} could not be matched.", color = CathodeMuted)
+                    else -> Text("Cathode will search sequentially for every track without saved lyrics. Matches are saved immediately.", color = CathodeMuted)
+                }
+                if (batchFailures.isNotEmpty()) {
+                    Text("NOT FOUND", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                    LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                        items(batchFailures.size) { index -> Text(batchFailures[index], modifier = Modifier.padding(vertical = 4.dp)) }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!batchRunning && !batchFinished) TextButton(onClick = {
+                val targets = libraryTracks.filter { it.lyrics.isBlank() }
+                batchTotal = targets.size
+                batchProgress = 0
+                batchFailures = emptyList()
+                batchRunning = true
+                batchFinished = false
+                scope.launch {
+                    targets.forEachIndexed { index, track ->
+                        LyricsRepository.find(track).fold(
+                            onSuccess = { onSaveLyrics(track, it.lyrics) },
+                            onFailure = { batchFailures = batchFailures + "${track.title} — ${track.artist}" },
+                        )
+                        batchProgress = index + 1
+                        delay(120)
+                    }
+                    batchRunning = false
+                    batchFinished = true
+                }
+            }) { Text("Start") }
+            else if (!batchRunning) TextButton(onClick = { showBatch = false }) { Text("Done") }
+        },
+        dismissButton = { if (!batchRunning && !batchFinished) TextButton(onClick = { showBatch = false }) { Text("Cancel") } },
+    )
 }
 
 private fun parseLyrics(value: String): List<LyricLine> = value.lineSequence().mapNotNull { raw ->
@@ -564,6 +666,18 @@ private fun QueueScreen(state: PlaybackState, player: PlayerConnection, onClose:
                             Text(current.artist, color = CathodeMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = player::previous) { Icon(Icons.Default.SkipPrevious, "Previous", tint = CathodeText) }
+                    IconButton(
+                        onClick = player::togglePlayPause,
+                        modifier = Modifier.size(54.dp).clip(CircleShape).background(CathodeCyan),
+                    ) { Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (state.isPlaying) "Pause" else "Play", tint = CathodeBlack) }
+                    IconButton(onClick = player::next) { Icon(Icons.Default.SkipNext, "Next", tint = CathodeText) }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(start = 18.dp, top = 18.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -737,10 +851,11 @@ private fun AudioDetailsCard(state: PlaybackState) {
         else -> "Device output"
     }
     Card(Modifier.fillMaxWidth().padding(top = 18.dp)) {
-        Column(Modifier.padding(14.dp)) {
-            Text("SIGNAL DETAILS", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Text(listOf(entry?.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO", details.sampleRate, details.bitDepth, details.bitrate).joinToString(" · "), color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
-            Text(route, color = CathodeDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+        Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("SIGNAL DETAILS", color = CathodeCyan, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(listOf(entry?.mimeType?.substringAfter('/')?.uppercase() ?: "AUDIO", details.sampleRate, details.bitDepth, details.bitrate).joinToString(" · "), color = CathodeMuted, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+            Text(route, color = CathodeDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp), textAlign = TextAlign.Center)
+            Text("LOCAL PLAYBACK", color = CathodeDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 10.dp), textAlign = TextAlign.Center)
         }
     }
 }

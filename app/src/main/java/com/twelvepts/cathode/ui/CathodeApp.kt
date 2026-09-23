@@ -244,7 +244,15 @@ fun CathodeApp(
         exit = fadeOut(tween(overlayDuration)) + slideOutVertically(tween(overlayDuration)) { it / 7 } + scaleOut(tween(overlayDuration), targetScale = .985f),
         label = "now-playing-overlay",
     ) {
-        NowPlayingScreen(playback, player, settings = settings, onDismiss = { showPlayer = false })
+        NowPlayingScreen(
+            state = playback,
+            player = player,
+            settings = settings,
+            currentTrack = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId?.let { key -> library.tracks.firstOrNull { it.stableKey == key } },
+            libraryTracks = library.tracks,
+            onSaveLyrics = { track, lyrics -> editMetadata(track, track.title, track.artist, track.album, track.tags, track.customArtworkUri, lyrics) },
+            onDismiss = { showPlayer = false },
+        )
     }
     AnimatedVisibility(
         visible = showSettings,

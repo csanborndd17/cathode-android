@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Cathode",
   "studio": "12Pts",
-  "androidVersion": "0.12.0",
+  "androidVersion": "0.12.1",
   "backupSchemaVersion": 1,
   "desktopVersion": null,
   "desktopRepository": "csanborndd17/cathode-desktop",
@@ -29,6 +29,6 @@
     {"id":"audio.equalizer","android":"implemented","desktop":"planned","notes":"System and user-created presets are supported when the active Android route exposes an effects session"},
     {"id":"audio.replaygain","android":"implemented","desktop":"planned"},
     {"id":"playback.transitions","android":"partial","desktop":"planned","notes":"Gapless is enabled where decoder/container metadata supports it; overlapping crossfade still requires a dual-player pipeline"},
-    {"id":"library.lyrics","android":"implemented","desktop":"planned","notes":"Manual LRC import, anonymous LRCLIB lookup, editable lyrics, and synchronized karaoke-style playback are supported"}
+    {"id":"library.lyrics","android":"implemented","desktop":"planned","notes":"Manual LRC import, immediate live metadata refresh, single and batch anonymous LRCLIB lookup, failure reporting, editable lyrics, and synchronized karaoke-style playback are supported"}
   ]
 }
