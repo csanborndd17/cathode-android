@@ -244,7 +244,7 @@ fun CathodeApp(
         exit = fadeOut(tween(overlayDuration)) + slideOutVertically(tween(overlayDuration)) { it / 7 } + scaleOut(tween(overlayDuration), targetScale = .985f),
         label = "now-playing-overlay",
     ) {
-        NowPlayingScreen(playback, player, animations = settings.animations, onDismiss = { showPlayer = false })
+        NowPlayingScreen(playback, player, settings = settings, onDismiss = { showPlayer = false })
     }
     AnimatedVisibility(
         visible = showSettings,

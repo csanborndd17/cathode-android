@@ -17,6 +17,8 @@ import com.twelvepts.cathode.data.CathodeDiagnostics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class QueueEntry(
     val mediaId: String,
@@ -36,7 +38,10 @@ data class AudioLabState(
     val maximumLevel: Short = 1500,
     val presets: List<String> = emptyList(),
     val bassBoost: Short = 0,
+    val userPresets: List<UserEqPreset> = emptyList(),
 )
+
+data class UserEqPreset(val name: String, val bandLevels: List<Short>, val bassBoost: Short)
 
 data class PlaybackState(
     val connected: Boolean = false,
@@ -231,6 +236,59 @@ class PlayerConnection(context: Context) : Player.Listener {
         }
     }
 
+    fun saveUserEqualizerPreset(name: String) {
+        val effect = equalizer ?: return
+        val clean = name.trim().take(40)
+        if (clean.isBlank()) return
+        val preset = UserEqPreset(clean, (0 until effect.numberOfBands.toInt()).map { effect.getBandLevel(it.toShort()) }, bassBoost?.roundedStrength ?: 0)
+        val presets = loadUserPresets().filterNot { it.name.equals(clean, true) } + preset
+        saveUserPresets(presets)
+        publishAudioLab()
+    }
+
+    fun applyUserEqualizerPreset(name: String) {
+        val preset = loadUserPresets().firstOrNull { it.name == name } ?: return
+        val effect = equalizer ?: return
+        val editor = audioPreferences.edit()
+        preset.bandLevels.take(effect.numberOfBands.toInt()).forEachIndexed { index, level ->
+            val applied = level.coerceIn(effect.bandLevelRange[0], effect.bandLevelRange[1])
+            effect.setBandLevel(index.toShort(), applied)
+            editor.putInt("band_$index", applied.toInt())
+        }
+        bassBoost?.setStrength(preset.bassBoost.coerceIn(0, 1000))
+        editor.putInt("bass", preset.bassBoost.coerceIn(0, 1000).toInt()).apply()
+        publishAudioLab()
+    }
+
+    fun renameUserEqualizerPreset(oldName: String, newName: String) {
+        val clean = newName.trim().take(40)
+        if (clean.isBlank()) return
+        val presets = loadUserPresets().filterNot { it.name.equals(clean, true) && it.name != oldName }
+            .map { if (it.name == oldName) it.copy(name = clean) else it }
+        saveUserPresets(presets)
+        publishAudioLab()
+    }
+
+    fun deleteUserEqualizerPreset(name: String) {
+        saveUserPresets(loadUserPresets().filterNot { it.name == name })
+        publishAudioLab()
+    }
+
+    private fun loadUserPresets(): List<UserEqPreset> = runCatching {
+        val array = JSONArray(audioPreferences.getString("user_presets", "[]"))
+        (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            val bands = item.getJSONArray("bands")
+            UserEqPreset(item.getString("name"), (0 until bands.length()).map { bands.getInt(it).toShort() }, item.optInt("bass", 0).toShort())
+        }
+    }.getOrDefault(emptyList())
+
+    private fun saveUserPresets(presets: List<UserEqPreset>) {
+        val array = JSONArray()
+        presets.forEach { preset -> array.put(JSONObject().put("name", preset.name).put("bands", JSONArray(preset.bandLevels.map { it.toInt() })).put("bass", preset.bassBoost.toInt())) }
+        audioPreferences.edit().putString("user_presets", array.toString()).apply()
+    }
+
     fun setBassBoost(strength: Short) {
         val applied = strength.coerceIn(0, 1000)
         bassBoost?.setStrength(applied)
@@ -336,6 +394,7 @@ class PlayerConnection(context: Context) : Player.Listener {
             maximumLevel = effect.bandLevelRange[1],
             presets = (0 until effect.numberOfPresets.toInt()).map { effect.getPresetName(it.toShort()) },
             bassBoost = bassBoost?.roundedStrength ?: 0,
+            userPresets = loadUserPresets(),
         )
     }
 

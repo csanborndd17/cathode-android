@@ -19,6 +19,8 @@ enum class LibrarySort(val label: String) {
 enum class NavigationStyle(val label: String) {
     LABELED("Icons + labels"), ICONS_ONLY("Icons only"), COMPACT("Compact"),
 }
+enum class WaveformStyle(val label: String) { BARS("Bars"), MIRROR("Mirror"), LINE("Signal line"), DOTS("Dots") }
+enum class WaveformColorPreset(val label: String) { ACCENT("App accent"), CYAN("Cyan"), AMBER("Amber"), MAGENTA("Magenta"), WHITE("White"), CUSTOM("Custom") }
 
 data class CathodeSettings(
     val themePreset: ThemePreset = ThemePreset.CYAN,
@@ -44,6 +46,9 @@ data class CathodeSettings(
     val profileName: String = "Listener",
     val profileImageUri: String? = null,
     val transmissionLogSeenYear: Int = 0,
+    val waveformStyle: WaveformStyle = WaveformStyle.MIRROR,
+    val waveformColorPreset: WaveformColorPreset = WaveformColorPreset.ACCENT,
+    val waveformCustomArgb: Int = 0xFF00E5FF.toInt(),
 ) {
     companion object {
         val defaultTabs = listOf("Home", "Library", "Discover")
@@ -83,6 +88,9 @@ class CathodeSettingsStore(context: Context) {
             .putString("profile_name", next.profileName)
             .apply { if (next.profileImageUri == null) remove("profile_image") else putString("profile_image", next.profileImageUri) }
             .putInt("transmission_log_seen_year", next.transmissionLogSeenYear)
+            .putString("waveform_style", next.waveformStyle.name)
+            .putString("waveform_color_preset", next.waveformColorPreset.name)
+            .putInt("waveform_custom_argb", next.waveformCustomArgb)
             .apply()
     }
 
@@ -149,6 +157,9 @@ class CathodeSettingsStore(context: Context) {
             profileName = preferences.getString("profile_name", "Listener") ?: "Listener",
             profileImageUri = preferences.getString("profile_image", null),
             transmissionLogSeenYear = preferences.getInt("transmission_log_seen_year", 0),
+            waveformStyle = runCatching { WaveformStyle.valueOf(preferences.getString("waveform_style", WaveformStyle.MIRROR.name)!!) }.getOrDefault(WaveformStyle.MIRROR),
+            waveformColorPreset = runCatching { WaveformColorPreset.valueOf(preferences.getString("waveform_color_preset", WaveformColorPreset.ACCENT.name)!!) }.getOrDefault(WaveformColorPreset.ACCENT),
+            waveformCustomArgb = preferences.getInt("waveform_custom_argb", 0xFF00E5FF.toInt()),
         )
     }
 }

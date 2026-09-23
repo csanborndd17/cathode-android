@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,6 +86,9 @@ fun SettingsScreen(
     var accentTone by remember(settings.customAccentArgb) {
         mutableFloatStateOf(if (initialHsv[2] >= .999f) initialHsv[1] / 2f else .5f + (1f - initialHsv[2]) / 2f)
     }
+    val waveformHsv = remember(settings.waveformCustomArgb) { FloatArray(3).also { android.graphics.Color.colorToHSV(settings.waveformCustomArgb, it) } }
+    var waveformHue by remember(settings.waveformCustomArgb) { mutableFloatStateOf(waveformHsv[0] / 360f) }
+    var waveformTone by remember(settings.waveformCustomArgb) { mutableFloatStateOf(if (waveformHsv[2] >= .999f) waveformHsv[1] / 2f else .5f + (1f - waveformHsv[2]) / 2f) }
     Box(Modifier.fillMaxSize().background(CathodeBlack)) {
         ArtworkBackdrop(artworkUri, settings.animations)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .22f), CathodeBlack.copy(alpha = .72f)))))
@@ -142,6 +146,25 @@ fun SettingsScreen(
                         store.update{it.copy(customAccentArgb=color)}
                     }){Text("Apply color")}
                     TextButton(onClick={store.update{it.copy(customAccentArgb=null)}}){Text("Use preset")}
+                }
+            }
+            item {
+                SettingSection("Waveform")
+                Text("Style", color = CathodeMuted)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(WaveformStyle.entries.size) { index ->
+                        val style = WaveformStyle.entries[index]
+                        FilterChip(selected = settings.waveformStyle == style, onClick = { store.update { it.copy(waveformStyle = style) } }, label = { Text(style.label) })
+                    }
+                }
+                Text("Color", color = CathodeMuted)
+                WaveformColorPreset.entries.forEach { preset ->
+                    FilterChip(selected = settings.waveformColorPreset == preset, onClick = { store.update { it.copy(waveformColorPreset = preset) } }, label = { Text(preset.label) })
+                }
+                if (settings.waveformColorPreset == WaveformColorPreset.CUSTOM) {
+                    val waveformPreview = accentFromPicker(waveformHue, waveformTone)
+                    AccentColorField(waveformHue, waveformTone) { hue, tone -> waveformHue = hue; waveformTone = tone }
+                    Button(onClick = { store.update { it.copy(waveformCustomArgb = waveformPreview.toArgb()) } }) { Text("Apply waveform color") }
                 }
             }
             item { SettingToggle("Monospace typography","Use the technical Cathode typeface.",settings.monospace){v->store.update{it.copy(monospace=v)}} }

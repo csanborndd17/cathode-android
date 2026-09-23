@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Pause
@@ -125,7 +126,8 @@ import kotlin.math.sin
 import java.util.Calendar
 
 @Composable
-fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations: Boolean, onDismiss: () -> Unit) {
+fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, settings: CathodeSettings, onDismiss: () -> Unit) {
+    val animations = settings.animations
     val view = LocalView.current
     var showQueue by remember { mutableStateOf(false) }
     var showAudioLab by remember { mutableStateOf(false) }
@@ -246,6 +248,8 @@ fun NowPlayingScreen(state: PlaybackState, player: PlayerConnection, animations:
                     positionMs = state.positionMs,
                     durationMs = state.durationMs,
                     isPlaying = state.isPlaying,
+                    style = settings.waveformStyle,
+                    color = waveformColor(settings),
                     onSeek = player::seekTo,
                 )
                 if (!state.isSeekable) {
@@ -609,6 +613,8 @@ private fun WaveformScrubber(
     positionMs: Long,
     durationMs: Long,
     isPlaying: Boolean,
+    style: WaveformStyle,
+    color: androidx.compose.ui.graphics.Color,
     onSeek: (Long) -> Unit,
 ) {
     val context = LocalContext.current
@@ -666,12 +672,17 @@ private fun WaveformScrubber(
             }
             val height = (baseHeight * pulse).coerceAtMost(size.height)
             val left = index * (barWidth + gap)
-            drawRoundRect(
-                color = if (active) CathodeCyan else CathodeText.copy(alpha = .30f),
-                topLeft = androidx.compose.ui.geometry.Offset(left, (size.height - height) / 2f),
-                size = androidx.compose.ui.geometry.Size(barWidth.coerceAtLeast(1f), height),
-                cornerRadius = CornerRadius(barWidth, barWidth),
-            )
+            val signalColor = if (active) color else color.copy(alpha = .24f)
+            when (style) {
+                WaveformStyle.BARS -> drawRoundRect(signalColor, androidx.compose.ui.geometry.Offset(left, size.height - height), androidx.compose.ui.geometry.Size(barWidth.coerceAtLeast(1f), height), CornerRadius(barWidth, barWidth))
+                WaveformStyle.MIRROR -> drawRoundRect(signalColor, androidx.compose.ui.geometry.Offset(left, (size.height - height) / 2f), androidx.compose.ui.geometry.Size(barWidth.coerceAtLeast(1f), height), CornerRadius(barWidth, barWidth))
+                WaveformStyle.DOTS -> drawCircle(signalColor, (2f + amplitude * 5f) * pulse, androidx.compose.ui.geometry.Offset(left + barWidth / 2f, size.height / 2f))
+                WaveformStyle.LINE -> if (index < amplitudes.lastIndex) {
+                    val nextX = (index + 1) * (barWidth + gap) + barWidth / 2f
+                    val nextY = size.height / 2f - (amplitudes[index + 1] - .5f) * size.height * .82f
+                    drawLine(signalColor, androidx.compose.ui.geometry.Offset(left + barWidth / 2f, size.height / 2f - (amplitude - .5f) * size.height * .82f), androidx.compose.ui.geometry.Offset(nextX, nextY), strokeWidth = 3.5f)
+                }
+            }
         }
       }
       dragFraction?.let { fraction ->
@@ -681,10 +692,19 @@ private fun WaveformScrubber(
               style = MaterialTheme.typography.labelSmall,
               modifier = Modifier.align(Alignment.TopStart)
                   .padding(start = ((fraction * 280f).coerceIn(0f, 260f)).dp)
-                  .background(CathodeCyan, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
+                  .background(color, CircleShape).padding(horizontal = 7.dp, vertical = 2.dp),
           )
       }
     }
+}
+
+private fun waveformColor(settings: CathodeSettings): androidx.compose.ui.graphics.Color = when (settings.waveformColorPreset) {
+    WaveformColorPreset.ACCENT -> settings.customAccentArgb?.let { androidx.compose.ui.graphics.Color(it) } ?: CathodeCyan
+    WaveformColorPreset.CYAN -> androidx.compose.ui.graphics.Color(0xFF00E5FF)
+    WaveformColorPreset.AMBER -> androidx.compose.ui.graphics.Color(0xFFFFB300)
+    WaveformColorPreset.MAGENTA -> androidx.compose.ui.graphics.Color(0xFFFF4FD8)
+    WaveformColorPreset.WHITE -> androidx.compose.ui.graphics.Color.White
+    WaveformColorPreset.CUSTOM -> androidx.compose.ui.graphics.Color(settings.waveformCustomArgb)
 }
 
 private data class AudioDetails(val sampleRate: String = "—", val bitrate: String = "—", val bitDepth: String = "—")
@@ -728,6 +748,9 @@ private fun AudioDetailsCard(state: PlaybackState) {
 @Composable
 private fun AudioLabScreen(player: PlayerConnection, onClose: () -> Unit) {
     val state by player.audioLab.collectAsStateWithLifecycle()
+    var namingPreset by remember { mutableStateOf(false) }
+    var editingPreset by remember { mutableStateOf<String?>(null) }
+    var presetName by remember { mutableStateOf("") }
     Surface(Modifier.fillMaxSize(), color = CathodeBlack) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -749,6 +772,26 @@ private fun AudioLabScreen(player: PlayerConnection, onClose: () -> Unit) {
                                 AssistChip(onClick = { player.useEqualizerPreset(index) }, label = { Text(state.presets[index]) }, enabled = state.enabled)
                             }
                         }
+                    }
+                    item {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("MY PRESETS", Modifier.weight(1f), color = CathodeCyan, fontWeight = FontWeight.Bold)
+                            TextButton(onClick = { presetName = ""; editingPreset = null; namingPreset = true }, enabled = state.enabled) { Text("Save current") }
+                        }
+                        state.userPresets.forEach { preset ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { player.applyUserEqualizerPreset(preset.name) }, enabled = state.enabled, modifier = Modifier.weight(1f)) {
+                                    Text(preset.name, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+                                }
+                                IconButton(onClick = { presetName = preset.name; editingPreset = preset.name; namingPreset = true }) {
+                                    Icon(Icons.Default.Edit, "Rename ${preset.name}", tint = CathodeMuted)
+                                }
+                                IconButton(onClick = { player.deleteUserEqualizerPreset(preset.name) }) {
+                                    Icon(Icons.Default.Delete, "Delete ${preset.name}", tint = CathodeMuted)
+                                }
+                            }
+                        }
+                        if (state.userPresets.isEmpty()) Text("Save your current bands and bass boost as a reusable preset.", color = CathodeMuted, style = MaterialTheme.typography.labelMedium)
                     }
                     item {
                         Text("FREQUENCY BANDS", color = CathodeCyan, fontWeight = FontWeight.Bold)
@@ -785,6 +828,17 @@ private fun AudioLabScreen(player: PlayerConnection, onClose: () -> Unit) {
             }
         }
     }
+    if (namingPreset) AlertDialog(
+        onDismissRequest = { namingPreset = false },
+        title = { Text(if (editingPreset == null) "Save EQ preset" else "Rename EQ preset") },
+        text = { OutlinedTextField(presetName, { presetName = it.take(40) }, label = { Text("Preset name") }, singleLine = true) },
+        confirmButton = { TextButton(onClick = {
+            val old = editingPreset
+            if (old == null) player.saveUserEqualizerPreset(presetName) else player.renameUserEqualizerPreset(old, presetName)
+            namingPreset = false
+        }, enabled = presetName.isNotBlank()) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { namingPreset = false }) { Text("Cancel") } },
+    )
 }
 
 private fun frequencyLabel(hz: Int): String = if (hz >= 1000) "${hz / 1000f} kHz" else "$hz Hz"
