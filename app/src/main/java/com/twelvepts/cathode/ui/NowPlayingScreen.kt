@@ -514,6 +514,19 @@ private fun LyricsScreen(
                 ) { Text(if (lookupRunning) "Searching…" else if (state.lyrics.isBlank()) "Find and save" else "Find replacement") }
                 TextButton(onClick = { showBatch = true }) { Text("Find missing lyrics") }
             }
+            if (lines.any { it.timeMs != null }) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Text("TIMING", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+                    TextButton(
+                        enabled = currentTrack != null,
+                        onClick = { currentTrack?.let { onSaveLyrics(it, shiftLrcTimestamps(state.lyrics, -1_000L)) } },
+                    ) { Text("−1s") }
+                    TextButton(
+                        enabled = currentTrack != null,
+                        onClick = { currentTrack?.let { onSaveLyrics(it, shiftLrcTimestamps(state.lyrics, 1_000L)) } },
+                    ) { Text("+1s") }
+                }
+            }
             lookupMessage?.let { Text(it, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
             if (lines.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -538,15 +551,21 @@ private fun LyricsScreen(
                             tween(420, easing = FastOutSlowInEasing),
                             label = "lyric-color",
                         )
-                        Text(
-                            line.text,
-                            color = lineColor,
-                            style = MaterialTheme.typography.headlineLarge.copy(shadow = Shadow(CathodeBlack, Offset(0f, 3f), 9f)),
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }
+                        Column(
+                            Modifier.fillMaxWidth().graphicsLayer { scaleX = scale; scaleY = scale }
                                 .clickable(enabled = line.timeMs != null) { line.timeMs?.let(player::seekTo) },
-                        )
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            line.timeMs?.let { Text(formatLyricTimestamp(it), color = lineColor.copy(alpha = .58f), style = MaterialTheme.typography.labelSmall) }
+                            Text(
+                                line.text,
+                                color = lineColor,
+                                style = MaterialTheme.typography.headlineLarge.copy(shadow = Shadow(CathodeBlack, Offset(0f, 3f), 9f)),
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
                 if (!following && activeIndex >= 0) {
@@ -626,6 +645,17 @@ private fun parseLyrics(value: String): List<LyricLine> = value.lineSequence().m
         LyricLine((minutes * 60L + seconds) * 1000L + fraction, match.groupValues[4].trim())
     }
 }.toList()
+
+private fun shiftLrcTimestamps(value: String, deltaMs: Long): String = value.lineSequence().joinToString("\n") { raw ->
+    val match = Regex("^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?](.*)$").find(raw.trim()) ?: return@joinToString raw
+    val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+    val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+    val fraction = match.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+    val shifted = ((minutes * 60L + seconds) * 1000L + fraction + deltaMs).coerceAtLeast(0L)
+    "[%02d:%02d.%02d]%s".format(shifted / 60_000L, shifted / 1_000L % 60L, shifted % 1_000L / 10L, match.groupValues[4])
+}
+
+private fun formatLyricTimestamp(timeMs: Long): String = "%02d:%02d".format(timeMs / 60_000L, timeMs / 1_000L % 60L)
 
 private fun formatSleepDuration(seconds: Long): String = when {
     seconds % 3600L == 0L -> "${seconds / 3600L} hours"
