@@ -8,6 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CATHODE_RELEASE_KEYSTORE_BASE64: ${{ secrets.CATHODE_RELEASE_KEYSTORE_BASE64 }}
+      CATHODE_KEYSTORE_PASSWORD: ${{ secrets.CATHODE_KEYSTORE_PASSWORD }}
+      CATHODE_KEY_ALIAS: ${{ secrets.CATHODE_KEY_ALIAS }}
+      CATHODE_KEY_PASSWORD: ${{ secrets.CATHODE_KEY_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +34,27 @@ jobs:
       - name: Test and assemble debug APK
         run: bash gradlew testDebugUnitTest assembleDebug --stacktrace
 
+      - name: Restore release signing key
+        if: ${{ env.CATHODE_RELEASE_KEYSTORE_BASE64 != '' && env.CATHODE_KEYSTORE_PASSWORD != '' && env.CATHODE_KEY_ALIAS != '' && env.CATHODE_KEY_PASSWORD != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cathode-signing"
+          printf '%s' "$CATHODE_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/cathode-signing/cathode-release.jks"
+          chmod 600 "$RUNNER_TEMP/cathode-signing/cathode-release.jks"
+
+      - name: Assemble signed release APK
+        if: ${{ env.CATHODE_RELEASE_KEYSTORE_BASE64 != '' && env.CATHODE_KEYSTORE_PASSWORD != '' && env.CATHODE_KEY_ALIAS != '' && env.CATHODE_KEY_PASSWORD != '' }}
+        env:
+          CATHODE_KEYSTORE_FILE: ${{ runner.temp }}/cathode-signing/cathode-release.jks
+        run: bash gradlew assembleRelease --stacktrace
+
       - uses: actions/upload-artifact@v4
         with:
           name: cathode-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload signed release APK
+        if: ${{ env.CATHODE_RELEASE_KEYSTORE_BASE64 != '' && env.CATHODE_KEYSTORE_PASSWORD != '' && env.CATHODE_KEY_ALIAS != '' && env.CATHODE_KEY_PASSWORD != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cathode-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
