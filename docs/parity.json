@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Cathode",
   "studio": "12Pts",
-  "androidVersion": "0.12.2",
+  "androidVersion": "0.13.0",
   "backupSchemaVersion": 1,
   "desktopVersion": null,
   "desktopRepository": "csanborndd17/cathode-desktop",
@@ -20,15 +20,15 @@
     {"id":"library.search","android":"implemented","desktop":"planned","desktopEquivalent":"Search metadata, folder, and custom tags"},
     {"id":"library.collections","android":"implemented","desktop":"planned","notes":"Favorites, editable manual playlists, and editable rule-based smart playlists","desktopEquivalent":"Local favorites, editable playlists, and rule-based smart playlists"},
     {"id":"library.duplicates","android":"implemented","desktop":"planned","notes":"Review-only likely-duplicate groups use normalized artist/title and duration tolerance; Cathode never deletes automatically"},
-    {"id":"library.metadata-overrides","android":"implemented","desktop":"planned","desktopEquivalent":"Non-destructive metadata and artwork overrides"},
+    {"id":"library.metadata-overrides","android":"implemented","desktop":"planned","notes":"Single and batch artwork overrides, searchable metadata tags, editable LRC, and spacing-preserving timestamp shifts","desktopEquivalent":"Non-destructive metadata and artwork overrides"},
     {"id":"visual.artwork-theme","android":"implemented","desktop":"planned","desktopEquivalent":"Artwork sampling, blur, gradients, and particles"},
     {"id":"profile.customization","android":"implemented","desktop":"planned","desktopEquivalent":"Local profile and appearance settings"},
     {"id":"history.transmission-log","android":"implemented","desktop":"planned","desktopEquivalent":"Compatible annual listening-stat schema"},
-    {"id":"discover.source-hub","android":"implemented","desktop":"planned","desktopEquivalent":"Secure browser or system-browser source launcher"},
+    {"id":"discover.source-hub","android":"implemented","desktop":"planned","notes":"Official Monochrome endpoints, Internet Archive, and Wikimedia Commons are available through an HTTPS-only browser with system-browser fallback","desktopEquivalent":"Secure browser or system-browser source launcher"},
     {"id":"import.playlist-link","android":"partial","desktop":"planned","notes":"Spotify OAuth, public YouTube API-key import, and guided source-search queues are implemented; private YouTube OAuth remains planned","desktopEquivalent":"Paste Spotify, YouTube, or supported playlist links; resolve track titles through authorized metadata access; queue searches against a user-selected source"},
     {"id":"audio.equalizer","android":"implemented","desktop":"planned","notes":"System and user-created presets are supported when the active Android route exposes an effects session"},
     {"id":"audio.replaygain","android":"implemented","desktop":"planned"},
     {"id":"playback.transitions","android":"partial","desktop":"planned","notes":"Gapless is enabled where decoder/container metadata supports it; overlapping crossfade still requires a dual-player pipeline"},
-    {"id":"library.lyrics","android":"implemented","desktop":"planned","notes":"Manual LRC import, immediate live metadata refresh, single and batch anonymous LRCLIB lookup, failure reporting, editable lyrics, and synchronized karaoke-style playback are supported"}
+    {"id":"library.lyrics","android":"implemented","desktop":"planned","notes":"Manual LRC import, immediate live metadata refresh, separate find/save actions, Library-level batch lookup, editable lyrics, spacing-preserving timestamp shifts, and synchronized karaoke-style playback are supported"}
   ]
 }

@@ -66,6 +66,8 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -138,7 +140,6 @@ fun NowPlayingScreen(
     player: PlayerConnection,
     settings: CathodeSettings,
     currentTrack: AudioTrack?,
-    libraryTracks: List<AudioTrack>,
     onSaveLyrics: (AudioTrack, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -352,7 +353,7 @@ fun NowPlayingScreen(
         enter = fadeIn(tween(if (animations) 260 else 0)) + slideInVertically(tween(if (animations) 320 else 0)) { it / 10 },
         exit = fadeOut(tween(if (animations) 220 else 0)) + slideOutVertically(tween(if (animations) 260 else 0)) { it / 12 },
         label = "lyrics-overlay",
-    ) { LyricsScreen(state, player, currentTrack, libraryTracks, onSaveLyrics) { showLyrics = false } }
+    ) { LyricsScreen(state, player, currentTrack, onSaveLyrics) { showLyrics = false } }
     if (showQueue) QueueScreen(state, player) { showQueue = false }
     if (showAudioLab) AudioLabScreen(player) { showAudioLab = false }
     if (showSleepTimer) AlertDialog(
@@ -436,7 +437,6 @@ private fun LyricsScreen(
     state: PlaybackState,
     player: PlayerConnection,
     currentTrack: AudioTrack?,
-    libraryTracks: List<AudioTrack>,
     onSaveLyrics: (AudioTrack, String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -446,12 +446,8 @@ private fun LyricsScreen(
     val scope = rememberCoroutineScope()
     var lookupRunning by remember(currentTrack?.stableKey) { mutableStateOf(false) }
     var lookupMessage by remember(currentTrack?.stableKey) { mutableStateOf<String?>(null) }
-    var showBatch by remember { mutableStateOf(false) }
-    var batchRunning by remember { mutableStateOf(false) }
-    var batchProgress by remember { mutableStateOf(0) }
-    var batchTotal by remember { mutableStateOf(0) }
-    var batchFailures by remember { mutableStateOf<List<String>>(emptyList()) }
-    var batchFinished by remember { mutableStateOf(false) }
+    var pendingLyrics by remember(currentTrack?.stableKey) { mutableStateOf<String?>(null) }
+    var showActions by remember { mutableStateOf(false) }
     val trackKey = state.queue.getOrNull(state.mediaItemIndex)?.mediaId
     var following by remember(trackKey) { mutableStateOf(true) }
     val manualScrollConnection = remember {
@@ -484,7 +480,7 @@ private fun LyricsScreen(
                 contentScale = ContentScale.Crop,
             )
             SignalDust(true)
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to CathodeBlack.copy(alpha = .22f), 1f to CathodeBlack.copy(alpha = .78f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CathodeBlack.copy(alpha = .92f), CathodeBlack.copy(alpha = .20f), CathodeBlack.copy(alpha = .20f), CathodeBlack.copy(alpha = .94f)))))
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "Close lyrics", tint = CathodeCyan) }
@@ -492,43 +488,49 @@ private fun LyricsScreen(
                     Text("Lyrics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(state.title, color = CathodeMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                TextButton(
-                    enabled = currentTrack != null && !lookupRunning,
-                    onClick = {
-                        val track = currentTrack ?: return@TextButton
-                        lookupRunning = true
-                        lookupMessage = null
-                        scope.launch {
-                            LyricsRepository.find(track).fold(
-                                onSuccess = {
-                                    onSaveLyrics(track, it.lyrics)
-                                    lookupMessage = if (it.synchronized) "Synchronized lyrics saved." else "Plain lyrics saved."
-                                },
-                                onFailure = { lookupMessage = it.message ?: "Lyrics were not found." },
-                            )
-                            lookupRunning = false
-                        }
-                    },
-                ) { Text(if (lookupRunning) "Searching…" else if (state.lyrics.isBlank()) "Find and save" else "Find replacement") }
-                TextButton(onClick = { showBatch = true }) { Text("Find missing lyrics") }
-            }
-            if (lines.any { it.timeMs != null }) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Text("TIMING", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
-                    TextButton(
-                        enabled = currentTrack != null,
-                        onClick = { currentTrack?.let { onSaveLyrics(it, shiftLrcTimestamps(state.lyrics, -1_000L)) } },
-                    ) { Text("−1s") }
-                    TextButton(
-                        enabled = currentTrack != null,
-                        onClick = { currentTrack?.let { onSaveLyrics(it, shiftLrcTimestamps(state.lyrics, 1_000L)) } },
-                    ) { Text("+1s") }
+                Box {
+                    IconButton(onClick = { showActions = true }) { Icon(Icons.Default.MoreVert, "Lyrics actions", tint = CathodeCyan) }
+                    DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (state.lyrics.isBlank()) "Find lyrics" else "Find replacement") },
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            enabled = currentTrack != null && !lookupRunning,
+                            onClick = {
+                                showActions = false
+                                val track = currentTrack ?: return@DropdownMenuItem
+                                lookupRunning = true
+                                lookupMessage = null
+                                scope.launch {
+                                    LyricsRepository.find(track).fold(
+                                        onSuccess = {
+                                            pendingLyrics = it.lyrics
+                                            lookupMessage = if (it.synchronized) "Synchronized lyrics found. Review, then save." else "Plain lyrics found. Review, then save."
+                                        },
+                                        onFailure = { lookupMessage = it.message ?: "Lyrics were not found." },
+                                    )
+                                    lookupRunning = false
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Save found lyrics") },
+                            leadingIcon = { Icon(Icons.Default.Save, null) },
+                            enabled = currentTrack != null && pendingLyrics != null,
+                            onClick = {
+                                val track = currentTrack ?: return@DropdownMenuItem
+                                pendingLyrics?.let { onSaveLyrics(track, it) }
+                                pendingLyrics = null
+                                lookupMessage = "Lyrics saved."
+                                showActions = false
+                            },
+                        )
+                    }
                 }
             }
+            if (lookupRunning) Text("Searching…", color = CathodeCyan, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             lookupMessage?.let { Text(it, color = CathodeMuted, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
-            if (lines.isEmpty()) {
+            val displayedLines = remember(state.lyrics, pendingLyrics) { parseLyrics(pendingLyrics ?: state.lyrics) }
+            if (displayedLines.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No local lyrics yet. Edit this track's metadata from Library to add plain text or LRC lyrics.", color = CathodeMuted, textAlign = TextAlign.Center)
                 }
@@ -539,7 +541,7 @@ private fun LyricsScreen(
                     contentPadding = PaddingValues(vertical = maxHeight * .40f),
                     verticalArrangement = Arrangement.spacedBy(28.dp),
                 ) {
-                    itemsIndexed(lines) { index, line ->
+                    itemsIndexed(displayedLines) { index, line ->
                         val active = index == activeIndex
                         val scale by animateFloatAsState(
                             if (active) 1f else .82f,
@@ -582,56 +584,6 @@ private fun LyricsScreen(
         }
         }
     }
-    if (showBatch) AlertDialog(
-        onDismissRequest = { if (!batchRunning) showBatch = false },
-        title = { Text("Find missing lyrics") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                when {
-                    batchRunning -> {
-                        Text("Searching $batchProgress of $batchTotal", color = CathodeCyan)
-                        androidx.compose.material3.LinearProgressIndicator(
-                            progress = { if (batchTotal == 0) 0f else batchProgress.toFloat() / batchTotal },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    batchFinished && batchTotal == 0 -> Text("Every track already has saved lyrics.", color = CathodeMuted)
-                    batchFinished -> Text("Checked $batchProgress tracks. ${batchFailures.size} could not be matched.", color = CathodeMuted)
-                    else -> Text("Cathode will search sequentially for every track without saved lyrics. Matches are saved immediately.", color = CathodeMuted)
-                }
-                if (batchFailures.isNotEmpty()) {
-                    Text("NOT FOUND", color = CathodeCyan, fontWeight = FontWeight.Bold)
-                    LazyColumn(Modifier.heightIn(max = 260.dp)) {
-                        items(batchFailures.size) { index -> Text(batchFailures[index], modifier = Modifier.padding(vertical = 4.dp)) }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (!batchRunning && !batchFinished) TextButton(onClick = {
-                val targets = libraryTracks.filter { it.lyrics.isBlank() }
-                batchTotal = targets.size
-                batchProgress = 0
-                batchFailures = emptyList()
-                batchRunning = true
-                batchFinished = false
-                scope.launch {
-                    targets.forEachIndexed { index, track ->
-                        LyricsRepository.find(track).fold(
-                            onSuccess = { onSaveLyrics(track, it.lyrics) },
-                            onFailure = { batchFailures = batchFailures + "${track.title} — ${track.artist}" },
-                        )
-                        batchProgress = index + 1
-                        delay(120)
-                    }
-                    batchRunning = false
-                    batchFinished = true
-                }
-            }) { Text("Start") }
-            else if (!batchRunning) TextButton(onClick = { showBatch = false }) { Text("Done") }
-        },
-        dismissButton = { if (!batchRunning && !batchFinished) TextButton(onClick = { showBatch = false }) { Text("Cancel") } },
-    )
 }
 
 private fun parseLyrics(value: String): List<LyricLine> = value.lineSequence().mapNotNull { raw ->
@@ -645,15 +597,6 @@ private fun parseLyrics(value: String): List<LyricLine> = value.lineSequence().m
         LyricLine((minutes * 60L + seconds) * 1000L + fraction, match.groupValues[4].trim())
     }
 }.toList()
-
-private fun shiftLrcTimestamps(value: String, deltaMs: Long): String = value.lineSequence().joinToString("\n") { raw ->
-    val match = Regex("^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?](.*)$").find(raw.trim()) ?: return@joinToString raw
-    val minutes = match.groupValues[1].toLongOrNull() ?: 0L
-    val seconds = match.groupValues[2].toLongOrNull() ?: 0L
-    val fraction = match.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-    val shifted = ((minutes * 60L + seconds) * 1000L + fraction + deltaMs).coerceAtLeast(0L)
-    "[%02d:%02d.%02d]%s".format(shifted / 60_000L, shifted / 1_000L % 60L, shifted % 1_000L / 10L, match.groupValues[4])
-}
 
 private fun formatLyricTimestamp(timeMs: Long): String = "%02d:%02d".format(timeMs / 60_000L, timeMs / 1_000L % 60L)
 

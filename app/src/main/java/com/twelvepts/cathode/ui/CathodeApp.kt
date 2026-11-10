@@ -130,6 +130,8 @@ fun CathodeApp(
             )
         },
     ) {
+        Box(Modifier.fillMaxSize()) {
+        ArtworkBackdrop(playback.artworkUri, settings.animations)
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -171,7 +173,6 @@ fun CathodeApp(
             },
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
-                ArtworkBackdrop(playback.artworkUri, settings.animations)
                 AnimatedContent(
                     targetState = tab,
                     transitionSpec = {
@@ -218,8 +219,8 @@ fun CathodeApp(
                             onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
                             onRemoveFromPlaylist = viewModel::removeFromPlaylist,
                             onMovePlaylistTrack = viewModel::movePlaylistTrack,
-                            onBatchEdit = { tracks, artist, album, tags ->
-                                viewModel.updateMetadataBatch(tracks, artist, album, tags).forEach(player::updateTrackMetadata)
+                            onBatchEdit = { tracks, artist, album, tags, artwork ->
+                                viewModel.updateMetadataBatch(tracks, artist, album, tags, artwork).forEach(player::updateTrackMetadata)
                             },
                             onCreateSmartPlaylist = viewModel::createSmartPlaylist,
                             onUpdateSmartPlaylist = viewModel::updateSmartPlaylist,
@@ -232,6 +233,7 @@ fun CathodeApp(
                     }
                 }
             }
+        }
         }
     }
 
@@ -249,7 +251,6 @@ fun CathodeApp(
             player = player,
             settings = settings,
             currentTrack = playback.queue.getOrNull(playback.mediaItemIndex)?.mediaId?.let { key -> library.tracks.firstOrNull { it.stableKey == key } },
-            libraryTracks = library.tracks,
             onSaveLyrics = { track, lyrics -> editMetadata(track, track.title, track.artist, track.album, track.tags, track.customArtworkUri, lyrics) },
             onDismiss = { showPlayer = false },
         )

@@ -43,6 +43,8 @@ data class CathodeSettings(
     val libraryCategory: LibraryCategory = LibraryCategory.SONGS,
     val librarySort: LibrarySort = LibrarySort.RECENT,
     val libraryGrid: Boolean = false,
+    val libraryGridColumns: Int = 2,
+    val libraryPinchZoom: Boolean = true,
     val profileName: String = "Listener",
     val profileImageUri: String? = null,
     val transmissionLogSeenYear: Int = 0,
@@ -85,6 +87,8 @@ class CathodeSettingsStore(context: Context) {
             .putString("library_category", next.libraryCategory.name)
             .putString("library_sort", next.librarySort.name)
             .putBoolean("library_grid", next.libraryGrid)
+            .putInt("library_grid_columns", next.libraryGridColumns.coerceIn(2, 5))
+            .putBoolean("library_pinch_zoom", next.libraryPinchZoom)
             .putString("profile_name", next.profileName)
             .apply { if (next.profileImageUri == null) remove("profile_image") else putString("profile_image", next.profileImageUri) }
             .putInt("transmission_log_seen_year", next.transmissionLogSeenYear)
@@ -154,6 +158,8 @@ class CathodeSettingsStore(context: Context) {
             libraryCategory = runCatching { LibraryCategory.valueOf(preferences.getString("library_category", LibraryCategory.SONGS.name)!!) }.getOrDefault(LibraryCategory.SONGS),
             librarySort = runCatching { LibrarySort.valueOf(preferences.getString("library_sort", LibrarySort.RECENT.name)!!) }.getOrDefault(LibrarySort.RECENT),
             libraryGrid = preferences.getBoolean("library_grid", false),
+            libraryGridColumns = preferences.getInt("library_grid_columns", 2).coerceIn(2, 5),
+            libraryPinchZoom = preferences.getBoolean("library_pinch_zoom", true),
             profileName = preferences.getString("profile_name", "Listener") ?: "Listener",
             profileImageUri = preferences.getString("profile_image", null),
             transmissionLogSeenYear = preferences.getInt("transmission_log_seen_year", 0),

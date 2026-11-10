@@ -146,8 +146,8 @@ class MainActivity : ComponentActivity() {
         }
         enableEdgeToEdge()
         window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
@@ -188,11 +188,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        viewModel.rescan()
     }
 
     override fun onDestroy() {

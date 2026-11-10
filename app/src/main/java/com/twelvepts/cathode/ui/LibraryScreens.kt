@@ -12,12 +12,14 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -57,6 +60,10 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
@@ -78,6 +85,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -93,6 +101,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -147,8 +156,11 @@ fun HomeScreen(
     val albums = recent.groupBy { it.album }.values.mapNotNull { it.firstOrNull() }.take(10)
     fun visible(name: String) = name !in settings.hiddenHomeSections
 
+    val homeGridState = rememberLazyGridState()
+    val revealDetails = homeGridState.firstVisibleItemIndex > 2 || homeGridState.firstVisibleItemScrollOffset > 70
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        state = homeGridState,
         modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -192,13 +204,13 @@ fun HomeScreen(
         } else if (visible("Quick transmission")) {
             item { HomeMetricCard("SHUFFLE", "${state.tracks.size} tracks", Icons.Default.PlayArrow, 0) { onPlay(state.tracks.random()) } }
             item { HomeMetricCard("FAVORITES", "${state.favoriteKeys.size} saved", Icons.Default.Favorite, 1) { onOpenLibrary(LibraryCategory.FAVORITES) } }
-            item { HomeMetricCard("LOSSLESS", "${lossless.size} indexed", Icons.Default.Star, 2) { onOpenLibrary(LibraryCategory.SONGS) } }
+            item { HomeMetricCard("ARTISTS", "${state.tracks.map { it.artist }.distinct().size} indexed", Icons.Default.Star, 2) { onOpenLibrary(LibraryCategory.ARTISTS) } }
             item { HomeMetricCard("PLAYLISTS", "${state.playlists.size} collections", Icons.Default.PlaylistAdd, 3) { onOpenLibrary(LibraryCategory.PLAYLISTS) } }
         }
         if (visible("Transmission snapshot")) {
-            item(span = { GridItemSpan(maxLineSpan) }) { HomeSectionTitle("Transmission snapshot") }
-            item { HomeNumberCard("${signal?.totalListenedMs?.div(60_000) ?: 0}", "MINUTES THIS YEAR") }
-            item { HomeNumberCard("${signal?.totalPlays ?: 0}", "PLAYS THIS YEAR") }
+            item(span = { GridItemSpan(maxLineSpan) }) { HomeReveal(revealDetails) { HomeSectionTitle("Transmission snapshot") } }
+            item { HomeReveal(revealDetails) { HomeNumberCard("${signal?.totalListenedMs?.div(60_000) ?: 0}", "MINUTES THIS YEAR") } }
+            item { HomeReveal(revealDetails) { HomeNumberCard("${signal?.totalPlays ?: 0}", "PLAYS THIS YEAR") } }
         }
         if (mostPlayed.isNotEmpty() && visible("On repeat")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("On repeat", mostPlayed, onPlay) }
         if (recent.isNotEmpty() && visible("Recently played")) item(span = { GridItemSpan(maxLineSpan) }) { HomeTrackShelf("Recently played", recent.take(10), onPlay) }
@@ -224,6 +236,12 @@ fun HomeScreen(
         }
         item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(18.dp)) }
     }
+}
+
+@Composable
+private fun HomeReveal(visible: Boolean, content: @Composable () -> Unit) {
+    val alpha by androidx.compose.animation.core.animateFloatAsState(if (visible) 1f else .18f, tween(300), label = "home-reveal")
+    Box(Modifier.graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * 26f }) { content() }
 }
 
 @Composable
@@ -313,7 +331,7 @@ fun LibraryScreen(
     onAddTracksToPlaylist: (Long, List<AudioTrack>) -> Unit,
     onRemoveFromPlaylist: (Long, AudioTrack) -> Unit,
     onMovePlaylistTrack: (Long, AudioTrack, Int) -> Unit,
-    onBatchEdit: (List<AudioTrack>, String, String, String) -> Unit,
+    onBatchEdit: (List<AudioTrack>, String, String, String, String?) -> Unit,
     onCreateSmartPlaylist: (String, String, String) -> Unit,
     onUpdateSmartPlaylist: (Long, String, String, String) -> Unit,
     onDeleteSmartPlaylist: (Long) -> Unit,
@@ -345,7 +363,16 @@ fun LibraryScreen(
     var batchArtist by remember { mutableStateOf("") }
     var batchAlbum by remember { mutableStateOf("") }
     var batchTags by remember { mutableStateOf("") }
+    var batchArtwork by remember { mutableStateOf<String?>(null) }
+    var libraryMenu by remember { mutableStateOf(false) }
+    var showBatchLyrics by remember { mutableStateOf(false) }
+    var lyricsBatchRunning by remember { mutableStateOf(false) }
+    var lyricsBatchProgress by remember { mutableStateOf(0) }
+    var lyricsBatchFailures by remember { mutableStateOf<List<String>>(emptyList()) }
+    var editingTrack by remember { mutableStateOf<AudioTrack?>(null) }
+    var pinchScale by remember { mutableFloatStateOf(1f) }
     val context = LocalContext.current
+    val libraryScope = rememberCoroutineScope()
     val selectedTracks = state.tracks.filter { it.stableKey in selectedKeys }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -398,6 +425,24 @@ fun LibraryScreen(
             editedPlaylistArtwork = uri.toString()
         }
     }
+    val batchArtworkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            batchArtwork = uri.toString()
+        }
+    }
+    val libraryGesture = if (settings.libraryPinchZoom) Modifier.pointerInput(settings.libraryGrid, settings.libraryGridColumns) {
+        detectTransformGestures { _, _, zoom, _ ->
+            pinchScale *= zoom
+            if (pinchScale < .78f) {
+                store.update { current -> if (!current.libraryGrid) current.copy(libraryGrid = true, libraryGridColumns = 2) else current.copy(libraryGridColumns = (current.libraryGridColumns + 1).coerceAtMost(5)) }
+                pinchScale = 1f
+            } else if (pinchScale > 1.28f) {
+                store.update { current -> if (current.libraryGridColumns > 2) current.copy(libraryGridColumns = current.libraryGridColumns - 1) else current.copy(libraryGrid = false) }
+                pinchScale = 1f
+            }
+        }
+    } else Modifier
     BackHandler(enabled = selectedKeys.isNotEmpty()) { selectedKeys = emptySet() }
     BackHandler(enabled = selectedKeys.isEmpty() && detail != null) { selectedGroup = null }
 
@@ -450,8 +495,20 @@ fun LibraryScreen(
                     Icon(Icons.Default.Delete, "Delete smart playlist", tint = CathodeError)
                 }
             }
+            if (detail == null) IconButton(onClick = { showBatchLyrics = true }) { Icon(Icons.Default.Lyrics, "Find missing lyrics", tint = CathodeCyan) }
             IconButton(onClick = { searching = !searching }) { Icon(Icons.Default.Search, "Search library", tint = CathodeCyan) }
-            IconButton(onClick = onRescan, enabled = !state.loading) { Icon(Icons.Default.Refresh, "Rescan", tint = CathodeCyan) }
+            if (detail == null) Box {
+                IconButton(onClick = { libraryMenu = true }) { Icon(Icons.Default.Menu, "Library options", tint = CathodeCyan) }
+                DropdownMenu(expanded = libraryMenu, onDismissRequest = { libraryMenu = false }) {
+                    DropdownMenuItem(text = { Text("Refresh library") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, onClick = { libraryMenu = false; onRescan() })
+                    DropdownMenuItem(text = { Text(if (settings.libraryGrid) "Use list view" else "Use grid view") }, leadingIcon = { Icon(if (settings.libraryGrid) Icons.Default.ViewList else Icons.Default.GridView, null) }, onClick = { store.update { it.copy(libraryGrid = !it.libraryGrid) }; libraryMenu = false })
+                    DropdownMenuItem(text = { Text(if (settings.libraryPinchZoom) "Disable pinch sizing" else "Enable pinch sizing") }, onClick = { store.update { it.copy(libraryPinchZoom = !it.libraryPinchZoom) }; libraryMenu = false })
+                    if (settings.libraryGrid) {
+                        DropdownMenuItem(text = { Text("Fewer columns") }, enabled = settings.libraryGridColumns > 2, onClick = { store.update { it.copy(libraryGridColumns = (it.libraryGridColumns - 1).coerceAtLeast(2)) } })
+                        DropdownMenuItem(text = { Text("More columns") }, enabled = settings.libraryGridColumns < 5, onClick = { store.update { it.copy(libraryGridColumns = (it.libraryGridColumns + 1).coerceAtMost(5)) } })
+                    }
+                }
+            }
         }
         if (selectedKeys.isNotEmpty()) {
             Row(
@@ -521,15 +578,20 @@ fun LibraryScreen(
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    if (settings.libraryCategory !in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
-                        FilterChip(selected = settings.libraryGrid, onClick = { store.update { it.copy(libraryGrid = !it.libraryGrid) } },
-                            label = { Text(if (settings.libraryGrid) "Grid" else "List") })
-                    }
                 }
                 val directTracks = if (settings.libraryCategory == LibraryCategory.FAVORITES) favorites else sorted
                 if (settings.libraryCategory in listOf(LibraryCategory.SONGS, LibraryCategory.FAVORITES)) {
                     if (directTracks.isEmpty()) MessagePanel("Nothing here yet", "Favorite songs with the star button.", CathodeMuted)
-                    else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    else if (settings.libraryGrid) LazyVerticalGrid(
+                        columns = GridCells.Fixed(settings.libraryGridColumns),
+                        modifier = Modifier.weight(1f).then(libraryGesture),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        gridItems(directTracks, key = AudioTrack::stableKey) { track ->
+                            TrackGridCard(track, { onPlay(track) }, { editingTrack = track }, track.stableKey in selectedKeys, { selectedKeys = selectedKeys + track.stableKey }, if (selectedKeys.isNotEmpty()) ({ selectedKeys = selectedKeys.toggle(track.stableKey) }) else null)
+                        }
+                    } else LazyColumn(Modifier.weight(1f).then(libraryGesture), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(directTracks, key = AudioTrack::stableKey) { track ->
                             TrackRow(track,onPlay,onEdit,onReset,false,null,track.stableKey in state.favoriteKeys,
                                 {onToggleFavorite(track)},state.playlists,{ id -> onAddToPlaylist(id,track) },
@@ -547,11 +609,11 @@ fun LibraryScreen(
                     MessagePanel(if (settings.libraryCategory == LibraryCategory.DUPLICATES) "No duplicates" else "No playlists", message, CathodeMuted)
                 } else if (settings.libraryGrid) {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(150.dp), modifier = Modifier.weight(1f),
+                        columns = GridCells.Fixed(settings.libraryGridColumns), modifier = Modifier.weight(1f).then(libraryGesture),
                         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) { gridItems(groups, key = LibraryGroup::key) { group -> LibraryGroupCard(group) { selectedGroup = group.key } } }
                 } else {
-                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LazyColumn(Modifier.weight(1f).then(libraryGesture), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(groups, key = LibraryGroup::key) { group -> LibraryGroupRow(group) { selectedGroup = group.key } }
                     }
                 }
@@ -575,15 +637,67 @@ fun LibraryScreen(
         title = { Text("Edit ${selectedTracks.size} tracks") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Leave a field blank to keep each track's current value.", color = CathodeMuted)
+            if (batchArtwork != null) AsyncImage(batchArtwork, "Batch cover", Modifier.size(112.dp).align(Alignment.CenterHorizontally), contentScale = ContentScale.Crop)
+            Row {
+                TextButton(onClick = { batchArtworkPicker.launch(arrayOf("image/*")) }) { Text("Choose cover for all") }
+                if (batchArtwork != null) TextButton(onClick = { batchArtwork = null }) { Text("Keep current covers") }
+            }
             OutlinedTextField(batchArtist, { batchArtist = it }, label = { Text("Artist") }, singleLine = true)
             OutlinedTextField(batchAlbum, { batchAlbum = it }, label = { Text("Album") }, singleLine = true)
             OutlinedTextField(batchTags, { batchTags = it }, label = { Text("Search tags") })
         } },
         confirmButton = { TextButton(onClick = {
-            onBatchEdit(selectedTracks, batchArtist, batchAlbum, batchTags)
-            batchArtist = ""; batchAlbum = ""; batchTags = ""; selectedKeys = emptySet(); batchEditing = false
+            onBatchEdit(selectedTracks, batchArtist, batchAlbum, batchTags, batchArtwork)
+            batchArtist = ""; batchAlbum = ""; batchTags = ""; batchArtwork = null; selectedKeys = emptySet(); batchEditing = false
         }) { Text("Apply") } },
         dismissButton = { TextButton(onClick = { batchEditing = false }) { Text("Cancel") } },
+    )
+
+    editingTrack?.let { track ->
+        MetadataDialog(
+            track = track,
+            onDismiss = { editingTrack = null },
+            onReset = { onReset(track); editingTrack = null },
+            onSave = { title, artist, album, tags, artwork, lyrics ->
+                onEdit(track, title, artist, album, tags, artwork, lyrics)
+                editingTrack = null
+            },
+        )
+    }
+
+    if (showBatchLyrics) AlertDialog(
+        onDismissRequest = { if (!lyricsBatchRunning) showBatchLyrics = false },
+        title = { Text("Find missing lyrics") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val total = state.tracks.count { it.lyrics.isBlank() }
+                Text(if (lyricsBatchRunning) "Searching $lyricsBatchProgress of $total" else "Search every track without saved lyrics. Matches save immediately; unmatched tracks stay unchanged.", color = CathodeMuted)
+                if (lyricsBatchRunning) LinearProgressIndicator(progress = { if (total == 0) 0f else lyricsBatchProgress.toFloat() / total }, modifier = Modifier.fillMaxWidth())
+                if (lyricsBatchFailures.isNotEmpty()) {
+                    Text("NOT FOUND (${lyricsBatchFailures.size})", color = CathodeCyan, fontWeight = FontWeight.Bold)
+                    LazyColumn(Modifier.height(220.dp)) { items(lyricsBatchFailures) { Text(it, modifier = Modifier.padding(vertical = 3.dp)) } }
+                }
+            }
+        },
+        confirmButton = {
+            if (!lyricsBatchRunning) TextButton(onClick = {
+                val targets = state.tracks.filter { it.lyrics.isBlank() }
+                lyricsBatchProgress = 0
+                lyricsBatchFailures = emptyList()
+                lyricsBatchRunning = true
+                libraryScope.launch {
+                    targets.forEachIndexed { index, track ->
+                        LyricsRepository.find(track).fold(
+                            onSuccess = { onEdit(track, track.title, track.artist, track.album, track.tags, track.customArtworkUri, it.lyrics) },
+                            onFailure = { lyricsBatchFailures = lyricsBatchFailures + "${track.title} — ${track.artist}" },
+                        )
+                        lyricsBatchProgress = index + 1
+                    }
+                    lyricsBatchRunning = false
+                }
+            }) { Text(if (lyricsBatchProgress > 0) "Run again" else "Start") }
+        },
+        dismissButton = { if (!lyricsBatchRunning) TextButton(onClick = { showBatchLyrics = false }) { Text("Close") } },
     )
 
     if (editingPlaylist && detailPlaylistId != null) AlertDialog(
@@ -747,6 +861,35 @@ private fun LibraryGroupCard(group: LibraryGroup, onClick: () -> Unit) {
             AsyncImage(group.artworkUri ?: group.tracks.firstOrNull()?.artworkUri, null, Modifier.fillMaxWidth().aspectRatio(1f).background(CathodePanel), contentScale = ContentScale.Crop)
             Text(group.title, Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(group.subtitle, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp), color = CathodeMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackGridCard(
+    track: AudioTrack,
+    onPlay: () -> Unit,
+    onEdit: () -> Unit,
+    selected: Boolean,
+    onLongClick: () -> Unit,
+    onSelectionClick: (() -> Unit)?,
+) {
+    Card(
+        modifier = Modifier.combinedClickable(
+            onClick = { if (onSelectionClick != null) onSelectionClick() else onPlay() },
+            onLongClick = onLongClick,
+        ),
+    ) {
+        Column(Modifier.background(if (selected) CathodeCyan.copy(alpha = .16f) else Color.Transparent)) {
+            Box {
+                AsyncImage(track.artworkUri, "${track.album} cover", Modifier.fillMaxWidth().aspectRatio(1f).background(CathodePanel), contentScale = ContentScale.Crop)
+                IconButton(onClick = onEdit, modifier = Modifier.align(Alignment.TopEnd).background(CathodeBlack.copy(alpha = .66f), CircleShape)) {
+                    Icon(Icons.Default.Edit, "Edit track", tint = CathodeCyan)
+                }
+            }
+            Text(track.title, Modifier.padding(start = 9.dp, end = 9.dp, top = 7.dp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.artist, Modifier.padding(start = 9.dp, end = 9.dp, bottom = 9.dp), color = CathodeMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -1067,6 +1210,14 @@ private fun MetadataDialog(
                     supportingText = { Text("Plain text or timestamped LRC lines are stored locally in Cathode.") },
                     minLines = 5,
                 )
+                if (lyrics.contains(Regex("\\[\\d{1,2}:\\d{2}"))) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Text("SHIFT ALL TIMESTAMPS", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+                        TextButton(onClick = { lyrics = shiftLrcTimestampsPreservingSpacing(lyrics, -1_000L) }) { Text("−1s") }
+                        TextButton(onClick = { lyrics = shiftLrcTimestampsPreservingSpacing(lyrics, 1_000L) }) { Text("+1s") }
+                    }
+                    Text("Every timestamp moves by the same amount, so lyric spacing and speed stay unchanged. Save to apply.", color = CathodeMuted, style = MaterialTheme.typography.labelSmall)
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { lyricsPicker.launch(arrayOf("text/plain", "application/octet-stream")) }) {
                         Text("Import .lrc")
@@ -1143,6 +1294,27 @@ private fun MetadataDialog(
             }) { Text("Use crop") } },
             dismissButton = { TextButton(onClick = { cropSource = null }) { Text("Cancel") } },
         )
+    }
+}
+
+private fun shiftLrcTimestampsPreservingSpacing(value: String, requestedDeltaMs: Long): String {
+    val pattern = Regex("^\\[(\\d{1,2}):(\\d{2})(?:[.:](\\d{1,3}))?](.*)$")
+    val timestamps = value.lineSequence().mapNotNull { raw ->
+        val match = pattern.find(raw.trim()) ?: return@mapNotNull null
+        val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+        val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+        val fraction = match.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+        (minutes * 60L + seconds) * 1000L + fraction
+    }.toList()
+    if (timestamps.isEmpty()) return value
+    val effectiveDelta = requestedDeltaMs.coerceAtLeast(-timestamps.min())
+    return value.lineSequence().joinToString("\n") { raw ->
+        val match = pattern.find(raw.trim()) ?: return@joinToString raw
+        val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+        val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+        val fraction = match.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+        val shifted = (minutes * 60L + seconds) * 1000L + fraction + effectiveDelta
+        "[%02d:%02d.%02d]%s".format(shifted / 60_000L, shifted / 1_000L % 60L, shifted % 1_000L / 10L, match.groupValues[4])
     }
 }
 

@@ -32,7 +32,7 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -89,22 +89,22 @@ private val discoverSources = listOf(
     DiscoverSource(
         "monochrome", "Monochrome", "Primary instance · direct lossless downloads",
         "Search a large catalog and download available high-resolution FLAC files without a Cathode account.",
-        "https://monochrome.tf/", "NO ACCOUNT · FLAC", "Monochrome", Icons.Default.MusicNote,
+        "https://monochrome.samidy.com/", "OFFICIAL · NO ACCOUNT · FLAC", "Monochrome", Icons.Default.MusicNote,
     ),
     DiscoverSource(
-        "monochrome-mirror", "Monochrome Mirror", "Official failover · lossless.wtf",
-        "Use the project’s official mirror when the primary Monochrome instance is unavailable.",
+        "monochrome-tf", "Monochrome .tf", "Official alternate instance",
+        "Use this official Monochrome domain when the primary instance is unavailable.",
+        "https://monochrome.tf/", "OFFICIAL FAILOVER", "Monochrome", Icons.Default.Language,
+    ),
+    DiscoverSource(
+        "monochrome-lossless", "Monochrome · lossless.wtf", "Official alternate instance",
+        "A second official Monochrome endpoint for outages or regional connection failures.",
         "https://lossless.wtf/", "OFFICIAL FAILOVER", "Monochrome", Icons.Default.Language,
     ),
     DiscoverSource(
         "archive", "Internet Archive", "Open audio archive · format varies",
         "Browse downloadable audio. FLAC is available only when the uploader supplied it; verify each item’s rights and file list.",
         "https://archive.org/details/audio", "NO ACCOUNT · SOME FLAC", "Cathode/Internet Archive", Icons.Default.Archive,
-    ),
-    DiscoverSource(
-        "bandcamp", "Bandcamp", "Artist storefronts · purchases and free releases",
-        "Support artists directly. Purchases can be downloaded as FLAC; free and name-your-price availability depends on the artist.",
-        "https://bandcamp.com/discover", "FLAC AFTER CHECKOUT", "Cathode/Bandcamp", Icons.Default.ShoppingBag,
     ),
     DiscoverSource(
         "commons", "Wikimedia Commons", "Freely licensed media · smaller FLAC catalog",
@@ -252,6 +252,9 @@ fun AcquireScreen() {
                         Text(source.badge, color = CathodeCyan, style = MaterialTheme.typography.labelSmall)
                     }
                     TextButton(onClick = { webView?.loadUrl(source.url) }, enabled = online) { Text("Home") }
+                    IconButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(webView?.url ?: source.url))) }
+                    }) { Icon(Icons.Default.OpenInBrowser, "Open in browser", tint = CathodeCyan) }
                 }
                 if (currentSearch != null && source == importSource) {
                     Surface(color = CathodePanel.copy(alpha = .96f)) {
@@ -537,9 +540,8 @@ fun AcquireScreen() {
 private fun DiscoverSource.searchUrl(query: String): String {
     val encoded = Uri.encode(query)
     return when (id) {
-        "monochrome", "monochrome-mirror" -> url.trimEnd('/') + "/search/$encoded"
+        "monochrome", "monochrome-tf", "monochrome-lossless" -> url.trimEnd('/') + "/search/$encoded"
         "archive" -> "https://archive.org/advancedsearch.php?q=$encoded"
-        "bandcamp" -> "https://bandcamp.com/search?q=$encoded"
         "commons" -> "https://commons.wikimedia.org/wiki/Special:MediaSearch?type=audio&search=$encoded"
         else -> url
     }

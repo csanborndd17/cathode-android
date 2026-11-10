@@ -178,7 +178,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
         return updated
     }
 
-    fun updateMetadataBatch(tracks: List<AudioTrack>, artist: String, album: String, tags: String): List<AudioTrack> {
+    fun updateMetadataBatch(tracks: List<AudioTrack>, artist: String, album: String, tags: String, customArtworkUri: String?): List<AudioTrack> {
         val updates = tracks.associate { track ->
             track.id to repository.updateMetadata(
                 track = track,
@@ -186,7 +186,7 @@ class CathodeViewModel(application: Application) : AndroidViewModel(application)
                 artist = artist.ifBlank { track.artist },
                 album = album.ifBlank { track.album },
                 tags = if (tags.isBlank()) track.tags else tags,
-                customArtworkUri = track.customArtworkUri,
+                customArtworkUri = customArtworkUri ?: track.customArtworkUri,
                 lyrics = track.lyrics,
             )
         }
